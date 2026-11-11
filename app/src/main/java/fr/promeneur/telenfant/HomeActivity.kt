@@ -233,6 +233,26 @@ class HomeActivity : Activity() {
         header.addView(chips)
         content.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
+        // Raccourcis : lampe et sonnerie
+        val quick = Ui.horizontal(this).apply { setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 12), Ui.dp(context, 4)) }
+        Torch.watch(this) { runOnUiThread { buildContent() } }
+        if (Torch.available(this)) {
+            val torch = Ui.button(this, if (Torch.isOn) "🔦 Lampe allumée" else "🔦 Lampe",
+                if (Torch.isOn) 0xFFFFC107.toInt() else 0x33000000, 17f) {
+                if (!Torch.toggle(this)) toast("Lampe indisponible")
+                buildContent()
+            }
+            if (Torch.isOn) torch.setTextColor(Ui.TEXT)
+            quick.addView(torch, LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply { marginEnd = Ui.dp(this@HomeActivity, 6) })
+        }
+        val vib = Sound.isVibrate(this)
+        quick.addView(Ui.button(this, if (vib) "📳 Vibreur" else "🔔 Sonnerie", if (vib) 0xFF6A1B9A.toInt() else 0x33000000, 17f) {
+            if (!Sound.setVibrate(this, !Sound.isVibrate(this))) toast("Impossible de changer le mode")
+            else toast(if (Sound.isVibrate(this)) "Mode vibreur 📳" else "Sonnerie activée 🔔")
+            buildContent()
+        }, LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply { marginStart = Ui.dp(this@HomeActivity, 6) })
+        content.addView(quick, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
         // Contacts + applis
         val body = Ui.vertical(this, 12)
         val contacts = Store.contacts(this)
@@ -354,7 +374,9 @@ class HomeActivity : Activity() {
 
     private fun addApps(body: LinearLayout, p: Palette) {
         val pm = packageManager
-        val apps = Store.allowedApps(this).mapNotNull { pkg ->
+        val pkgs = Store.allowedApps(this).toMutableList()
+        if (Store.cameraEnabled(this)) CameraApp.packageName(this)?.let { if (it !in pkgs) pkgs.add(0, it) }
+        val apps = pkgs.mapNotNull { pkg ->
             val launch = pm.getLaunchIntentForPackage(pkg) ?: return@mapNotNull null
             try {
                 val info = pm.getApplicationInfo(pkg, 0)

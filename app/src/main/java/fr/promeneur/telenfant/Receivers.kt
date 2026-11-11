@@ -44,6 +44,7 @@ class PolicyComplianceActivity : Activity() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Policy.apply(context)
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) Sound.applyDefault(context)
         context.startActivity(
             Intent(context, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )

@@ -128,6 +128,30 @@ class AdminActivity : Activity() {
         root.addView(Ui.button(this, "1. Ajouter un compte Google", Ui.BLUE) { addGoogleAccount() }, full())
         root.addView(Ui.button(this, "2. Ouvrir Google Play", Ui.BLUE) { openPlayStore() }, full())
 
+        // --- Son et appareil photo
+        section(root, "🔔 Son et 📷 appareil photo")
+        @Suppress("DEPRECATION")
+        val vibSw = Switch(this).apply {
+            text = "Vibreur au démarrage du téléphone (sinon sonnerie)"
+            textSize = 16f
+            isChecked = Store.defaultVibrate(this@AdminActivity)
+            setOnCheckedChangeListener { _, on ->
+                Store.setDefaultVibrate(this@AdminActivity, on)
+                Sound.setVibrate(this@AdminActivity, on)
+            }
+        }
+        root.addView(vibSw)
+        root.addView(Ui.text(this, "L'enfant peut toujours basculer entre sonnerie et vibreur depuis l'accueil (jamais en silence total).", 13f, Ui.GREY))
+        @Suppress("DEPRECATION")
+        val camSw = Switch(this).apply {
+            text = "Appli Appareil photo sur l'accueil"
+            textSize = 16f
+            isChecked = Store.cameraEnabled(this@AdminActivity)
+            setOnCheckedChangeListener { _, on -> Store.setCameraEnabled(this@AdminActivity, on) }
+        }
+        root.addView(camSw)
+        root.addView(Ui.text(this, "La galerie reste bloquée : les photos se consultent et s'envoient depuis les messages.", 13f, Ui.GREY))
+
         // --- Réglages
         section(root, "⚙️ Réglages")
         root.addView(Ui.button(this, "🔑 Changer le code admin", Ui.BLUE) {

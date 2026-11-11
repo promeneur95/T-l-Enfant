@@ -128,4 +128,12 @@ object Store {
     // ---------- Applications autorisées ----------
     fun allowedApps(c: Context): Set<String> = p(c).getStringSet("apps", emptySet())?.toSet() ?: emptySet()
     fun setAllowedApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("apps", v).apply()
+
+    // ---------- Son et appareil photo ----------
+    /** Mode au démarrage du téléphone : vibreur (true) ou sonnerie (false). */
+    fun defaultVibrate(c: Context) = p(c).getBoolean("default_vibrate", false)
+    fun setDefaultVibrate(c: Context, v: Boolean) = p(c).edit().putBoolean("default_vibrate", v).apply()
+
+    fun cameraEnabled(c: Context) = p(c).getBoolean("camera_app", false)
+    fun setCameraEnabled(c: Context, v: Boolean) = p(c).edit().putBoolean("camera_app", v).apply()
 }
