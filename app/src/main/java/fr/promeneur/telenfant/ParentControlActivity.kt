@@ -120,6 +120,10 @@ class ParentControlActivity : Activity() {
         body.addView(Ui.button(this, "🔄 Rafraîchir l'état du téléphone", Ui.GREY, 15f) {
             send(JSONObject().put("cmd", "status"))
         }, full())
+        body.addView(Ui.button(this, "⬇️ Mettre à jour cette appli (téléphone parent)", Ui.GREY, 15f) {
+            toast("Vérification…")
+            Updater.check(this, silent = false) { toast(it) }
+        }, full())
 
         if (st == null) return
 
