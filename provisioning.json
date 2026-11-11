@@ -1,6 +1,6 @@
 {
  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "fr.promeneur.telenfant/fr.promeneur.telenfant.AdminReceiver",
- "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://github.com/promeneur95/Tel_Enfant/releases/latest/download/TelEnfant.apk",
+ "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://github.com/promeneur95/T-l-Enfant/releases/latest/download/TelEnfant.apk",
  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "i3m0C94IXIBSwPEGBuUi78br5eYM9uvlht6ZK-46XrQ",
  "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
  "android.app.extra.PROVISIONING_LOCALE": "fr_FR",

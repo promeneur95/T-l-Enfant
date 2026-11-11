@@ -14,7 +14,7 @@ import java.net.URL
 
 /** Mise à jour depuis la dernière « Release » GitHub (installation silencieuse en mode propriétaire). */
 object Updater {
-    const val REPO = "promeneur95/Tel_Enfant"
+    const val REPO = "promeneur95/T-l-Enfant"
     private const val API = "https://api.github.com/repos/$REPO/releases/latest"
 
     fun currentVersion(c: Context): Long =
