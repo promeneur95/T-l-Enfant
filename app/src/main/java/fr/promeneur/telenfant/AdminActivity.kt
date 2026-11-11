@@ -21,6 +21,8 @@ import android.widget.Toast
 /** Menu parent (protégé par le code admin). Le kiosque est suspendu tant que ce menu est ouvert. */
 class AdminActivity : Activity() {
 
+    companion object { const val PLAY_STORE = "com.android.vending" }
+
     private lateinit var contactsBox: LinearLayout
     private lateinit var info: TextView
     private lateinit var codeView: TextView
@@ -120,6 +122,11 @@ class AdminActivity : Activity() {
         root.addView(Ui.button(this, "Choisir les applis autorisées / installer une appli", Ui.BLUE) {
             startActivity(Intent(this, AppsActivity::class.java))
         }, full())
+        root.addView(Ui.text(this, "Google Play : ajoutez un compte Google (une seule fois), installez les applis depuis le Play Store, puis cochez-les dans « Choisir les applis autorisées ». L'enfant n'a jamais accès au Play Store.", 13f, Ui.GREY).apply {
+            setPadding(0, Ui.dp(context, 8), 0, 0)
+        })
+        root.addView(Ui.button(this, "1. Ajouter un compte Google", Ui.BLUE) { addGoogleAccount() }, full())
+        root.addView(Ui.button(this, "2. Ouvrir Google Play", Ui.BLUE) { openPlayStore() }, full())
 
         // --- Réglages
         section(root, "⚙️ Réglages")
@@ -174,6 +181,41 @@ class AdminActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    private fun addGoogleAccount() {
+        AlertDialog.Builder(this)
+            .setTitle("Ajouter un compte Google")
+            .setMessage(
+                "Important : une fois un compte Google ajouté, la protection antivol de Google s'active. " +
+                    "En cas de réinitialisation (code admin oublié, réinstallation…), le téléphone demandera ce compte et son mot de passe.\n\n" +
+                    "Utilisez de préférence un compte créé pour l'enfant ou pour ce téléphone, et notez ses identifiants."
+            )
+            .setPositiveButton("Continuer") { _, _ ->
+                if (Policy.isOwner(this)) {
+                    try {
+                        Policy.dpm(this).clearUserRestriction(Policy.admin(this), android.os.UserManager.DISALLOW_MODIFY_ACCOUNTS)
+                    } catch (_: Exception) {}
+                }
+                Store.lockSuspendedUntil = System.currentTimeMillis() + 10 * 60_000L
+                try {
+                    startActivity(Intent(Settings.ACTION_ADD_ACCOUNT).putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google")))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_SYNC_SETTINGS))
+                }
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun openPlayStore() {
+        if (Policy.isOwner(this)) {
+            try { Policy.dpm(this).enableSystemApp(Policy.admin(this), PLAY_STORE) } catch (_: Exception) {}
+        }
+        val launch = packageManager.getLaunchIntentForPackage(PLAY_STORE)
+        if (launch == null) { toast("Google Play n'est pas disponible sur ce téléphone"); return }
+        Store.lockSuspendedUntil = System.currentTimeMillis() + 10 * 60_000L
+        startActivity(launch)
+    }
 
     private fun pickEmoji(onPick: (String) -> Unit) {
         var dlg: AlertDialog? = null

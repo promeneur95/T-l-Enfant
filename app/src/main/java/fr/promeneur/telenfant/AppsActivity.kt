@@ -57,7 +57,8 @@ class AppsActivity : Activity() {
     private fun refresh() {
         list.removeAllViews()
         val pm = packageManager
-        val hidden = setOf(packageName) + Policy.mediaPackages(this)
+        // Jamais proposés à l'enfant : Play Store, Réglages, appareil photo (déjà géré par les messages)
+        val hidden = setOf(packageName, AdminActivity.PLAY_STORE, "com.android.settings") + Policy.mediaPackages(this)
         val apps = pm.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), PackageManager.MATCH_ALL
         ).map { it.activityInfo.packageName }.distinct().filter { it !in hidden }
