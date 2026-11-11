@@ -136,4 +136,8 @@ object Store {
 
     fun cameraEnabled(c: Context) = p(c).getBoolean("camera_app", false)
     fun setCameraEnabled(c: Context, v: Boolean) = p(c).edit().putBoolean("camera_app", v).apply()
+
+    // ---------- Messagerie vocale ----------
+    fun voicemailOverride(c: Context) = p(c).getString("voicemail", "") ?: ""
+    fun setVoicemailOverride(c: Context, v: String) = p(c).edit().putString("voicemail", v).apply()
 }

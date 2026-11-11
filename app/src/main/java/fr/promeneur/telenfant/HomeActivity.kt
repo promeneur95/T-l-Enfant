@@ -237,16 +237,22 @@ class HomeActivity : Activity() {
         val quick = Ui.horizontal(this).apply { setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 12), Ui.dp(context, 4)) }
         Torch.watch(this) { runOnUiThread { buildContent() } }
         if (Torch.available(this)) {
-            val torch = Ui.button(this, if (Torch.isOn) "🔦 Lampe allumée" else "🔦 Lampe",
-                if (Torch.isOn) 0xFFFFC107.toInt() else 0x33000000, 17f) {
+            val torch = Ui.button(this, if (Torch.isOn) "🔦 Allumée" else "🔦 Lampe",
+                if (Torch.isOn) 0xFFFFC107.toInt() else 0x33000000, 16f) {
                 if (!Torch.toggle(this)) toast("Lampe indisponible")
                 buildContent()
             }
             if (Torch.isOn) torch.setTextColor(Ui.TEXT)
             quick.addView(torch, LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply { marginEnd = Ui.dp(this@HomeActivity, 6) })
         }
+        CallManager.voicemail(this)?.let { vm ->
+            quick.addView(Ui.button(this, "📼 Répondeur", 0x33000000, 16f) { CallManager.dial(this, vm) },
+                LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply {
+                    marginStart = Ui.dp(this@HomeActivity, 6); marginEnd = Ui.dp(this@HomeActivity, 6)
+                })
+        }
         val vib = Sound.isVibrate(this)
-        quick.addView(Ui.button(this, if (vib) "📳 Vibreur" else "🔔 Sonnerie", if (vib) 0xFF6A1B9A.toInt() else 0x33000000, 17f) {
+        quick.addView(Ui.button(this, if (vib) "📳 Vibreur" else "🔔 Sonnerie", if (vib) 0xFF6A1B9A.toInt() else 0x33000000, 16f) {
             if (!Sound.setVibrate(this, !Sound.isVibrate(this))) toast("Impossible de changer le mode")
             else toast(if (Sound.isVibrate(this)) "Mode vibreur 📳" else "Sonnerie activée 🔔")
             buildContent()

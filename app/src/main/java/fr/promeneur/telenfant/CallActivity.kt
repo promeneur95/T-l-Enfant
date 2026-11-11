@@ -23,6 +23,8 @@ class CallActivity : Activity() {
     private lateinit var answer: Button
     private lateinit var speaker: Button
     private lateinit var mute: Button
+    private lateinit var keypad: LinearLayout
+    private lateinit var keyBtn: Button
     private val handler = Handler(Looper.getMainLooper())
     private val listener: () -> Unit = { runOnUiThread { refresh() } }
 
@@ -62,6 +64,27 @@ class CallActivity : Activity() {
         toggles.addView(speaker, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = Ui.dp(this@CallActivity, 6) })
         toggles.addView(mute, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = Ui.dp(this@CallActivity, 6) })
         root.addView(toggles, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        // Clavier (ex. « tapez 1 pour écouter vos messages »)
+        keypad = Ui.vertical(this, 0).apply { visibility = android.view.View.GONE }
+        listOf("123", "456", "789", "*0#").forEach { line ->
+            val row = Ui.horizontal(this)
+            line.forEach { ch ->
+                row.addView(Ui.button(this, ch.toString(), 0x33FFFFFF, 24f) {
+                    CallManager.current?.let { c -> c.playDtmfTone(ch); handler.postDelayed({ c.stopDtmfTone() }, 200) }
+                }, LinearLayout.LayoutParams(0, Ui.dp(this, 56), 1f).apply {
+                    val m = Ui.dp(this@CallActivity, 4); setMargins(m, m, m, m)
+                })
+            }
+            keypad.addView(row)
+        }
+        root.addView(keypad, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        keyBtn = Ui.button(this, "⌨️ Clavier", Ui.GREY, 16f) {
+            keypad.visibility = if (keypad.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        root.addView(keyBtn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+            topMargin = Ui.dp(this@CallActivity, 8)
+        })
         root.addView(Ui.space(this, 24))
 
         val actions = Ui.horizontal(this)
@@ -103,7 +126,8 @@ class CallActivity : Activity() {
         }
         val number = call.details.handle?.schemeSpecificPart ?: ""
         name.text = Store.find(this, number)?.name
-            ?: if (Store.isEmergencyNumber(number)) "Urgences $number" else number
+            ?: if (Store.isEmergencyNumber(number)) "Urgences $number"
+            else if (CallManager.isVoicemail(this, number)) "📼 Répondeur" else number
         val state = stateOf(call)
         status.text = when (state) {
             Call.STATE_RINGING -> "Appel entrant…"
@@ -114,6 +138,8 @@ class CallActivity : Activity() {
             else -> ""
         }
         answer.visibility = if (state == Call.STATE_RINGING) android.view.View.VISIBLE else android.view.View.GONE
+        keyBtn.visibility = if (state == Call.STATE_ACTIVE) android.view.View.VISIBLE else android.view.View.GONE
+        if (state != Call.STATE_ACTIVE) keypad.visibility = android.view.View.GONE
         speaker.alpha = if (CallManager.isSpeaker()) 1f else 0.6f
         speaker.text = if (CallManager.isSpeaker()) "🔊 Haut-parleur ON" else "🔊 Haut-parleur"
         mute.alpha = if (CallManager.isMuted()) 1f else 0.6f

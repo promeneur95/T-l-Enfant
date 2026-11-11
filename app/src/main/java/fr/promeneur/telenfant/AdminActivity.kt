@@ -150,6 +150,20 @@ class AdminActivity : Activity() {
             setOnCheckedChangeListener { _, on -> Store.setCameraEnabled(this@AdminActivity, on) }
         }
         root.addView(camSw)
+        val detected = try {
+            getSystemService(android.telephony.TelephonyManager::class.java)?.voiceMailNumber ?: ""
+        } catch (_: Exception) { "" }
+        val vmF = EditText(this).apply {
+            hint = "Numéro du répondeur" + if (detected.isNotBlank()) " (détecté : $detected)" else " (ex : 888, 123, 660, 666)"
+            setText(Store.voicemailOverride(this@AdminActivity))
+            inputType = InputType.TYPE_CLASS_PHONE
+            textSize = 16f
+        }
+        root.addView(vmF)
+        root.addView(Ui.button(this, "Enregistrer le numéro du répondeur", Ui.GREY) {
+            Store.setVoicemailOverride(this, vmF.text.toString().trim())
+            toast(if (CallManager.voicemail(this) != null) "Bouton Répondeur affiché sur l'accueil" else "Aucun numéro de répondeur")
+        }, full())
         root.addView(Ui.text(this, "La galerie reste bloquée : les photos se consultent et s'envoient depuis les messages.", 13f, Ui.GREY))
 
         // --- Réglages

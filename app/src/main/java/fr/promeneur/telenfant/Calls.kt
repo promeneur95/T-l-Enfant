@@ -40,9 +40,24 @@ object CallManager {
     fun isMuted() = service?.callAudioState?.isMuted == true
 
     /** Lance un appel sortant (numéros autorisés ou urgences uniquement). */
+    /** Numéro du répondeur : réglé par le parent, sinon celui de la carte SIM. */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun voicemail(c: Context): String? {
+        Store.voicemailOverride(c).takeIf { it.isNotBlank() }?.let { return it }
+        return try {
+            c.getSystemService(android.telephony.TelephonyManager::class.java)?.voiceMailNumber?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+    }
+
+    fun isVoicemail(c: Context, number: String?): Boolean {
+        val vm = voicemail(c) ?: return false
+        val a = (number ?: "").filter { it.isDigit() }
+        return a.isNotEmpty() && a == vm.filter { it.isDigit() }
+    }
+
     fun dial(c: Context, number: String) {
         val emergency = Store.isEmergencyNumber(number)
-        if (!emergency && !Store.isAllowed(c, number)) {
+        if (!emergency && !Store.isAllowed(c, number) && !isVoicemail(c, number)) {
             Toast.makeText(c, "Numéro non autorisé", Toast.LENGTH_SHORT).show()
             return
         }
