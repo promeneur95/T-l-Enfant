@@ -6,7 +6,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.MediaStore
 import android.os.UserManager
 import android.util.Log
 
@@ -59,7 +62,7 @@ object Policy {
         }
 
         // Kiosque : seule notre appli peut tourner
-        safe("locktask") { d.setLockTaskPackages(a, arrayOf(pkg)) }
+        safe("locktask") { d.setLockTaskPackages(a, (listOf(pkg) + mediaPackages(c)).distinct().toTypedArray()) }
         safe("locktask features") {
             d.setLockTaskFeatures(
                 a,
@@ -81,6 +84,21 @@ object Policy {
         // Appli téléphone et SMS par défaut
         if (Build.VERSION.SDK_INT >= 34) safe("dialer") { d.setDefaultDialerApplication(pkg) }
         safe("sms") { d.setDefaultSmsApplication(a, pkg) }
+    }
+
+    /** Appareil photo et sélecteur de photos du système, autorisés dans le kiosque pour l'envoi de photos. */
+    fun mediaPackages(c: Context): List<String> {
+        val pm = c.packageManager
+        val intents = listOf(
+            Intent(MediaStore.ACTION_IMAGE_CAPTURE),
+            Intent(if (Build.VERSION.SDK_INT >= 33) MediaStore.ACTION_PICK_IMAGES else Intent.ACTION_GET_CONTENT).setType("image/*"),
+        )
+        return intents.flatMap { intent ->
+            pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                .mapNotNull { it.activityInfo?.applicationInfo }
+                .filter { it.flags and ApplicationInfo.FLAG_SYSTEM != 0 }
+                .map { it.packageName }
+        }.filter { it != "android" && it != c.packageName }.distinct()
     }
 
     /** Lève tout et rend le téléphone normal (sans réinitialisation). */

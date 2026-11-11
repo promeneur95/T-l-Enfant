@@ -17,6 +17,21 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Appareil photo et sélecteur de photos (envoi de photos par MMS) -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.PICK_IMAGES" />
+            <data android:mimeType="image/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="image/*" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -146,6 +161,15 @@
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".MmsSentReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name=".MmsPduProvider"
+            android:authorities="fr.promeneur.telenfant.mms"
+            android:exported="true" />
 
         <service
             android:name=".HeadlessSmsSendService"
