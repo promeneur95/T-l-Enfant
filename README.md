@@ -35,12 +35,7 @@ Sur l'écran d'accueil, **appuyer 5 fois rapidement sur l'heure**, puis saisir l
 
 Chaque `push` sur `main` compile l'APK signé et publie une Release `vN` (N = numéro de build = `versionCode`).
 
-Secrets requis dans **Settings → Secrets and variables → Actions** :
-
-| Nom | Contenu |
-|---|---|
-| `KEYSTORE_B64` | le fichier de clé encodé en base64 |
-| `KEYSTORE_PASSWORD` | le mot de passe de la clé |
+La clé de signature est stockée **chiffrée** dans le dépôt (`app/release.jks.enc`, AES-256). Un seul secret est requis dans **Settings → Secrets and variables → Actions** : `KEYSTORE_PASSWORD` (mot de passe de la clé, qui sert aussi à la déchiffrer).
 
 ⚠️ **Conserver précieusement la clé de signature** (`TelEnfant-release.jks`). Sans elle, impossible de publier une mise à jour installable sur le téléphone : il faudrait réinitialiser et réinstaller.
 
