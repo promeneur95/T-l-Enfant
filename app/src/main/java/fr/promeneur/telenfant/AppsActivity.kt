@@ -73,7 +73,12 @@ class AppsActivity : Activity() {
             row.addView(ImageView(this).apply {
                 try { setImageDrawable(pm.getApplicationIcon(pkg)) } catch (_: Exception) {}
             }, LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)).apply { marginEnd = Ui.dp(this@AppsActivity, 10) })
-            row.addView(Ui.text(this, label, 16f), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            val lim = Store.limits(this)[pkg] ?: 0
+            val used = (Store.usage(this)[pkg] ?: 0L) / 60
+            row.addView(Ui.text(this, label + if (lim > 0) "\n⏳ $used / $lim min par jour" else "", 16f),
+                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            row.addView(Ui.button(this, "⏳", Ui.GREY, 14f) { askLimit(pkg, label, lim) },
+                LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = Ui.dp(this@AppsActivity, 6) })
             @Suppress("DEPRECATION")
             val sw = Switch(this).apply {
                 isChecked = pkg in allowed
@@ -88,6 +93,24 @@ class AppsActivity : Activity() {
                 topMargin = Ui.dp(this@AppsActivity, 6)
             })
         }
+    }
+
+    private fun askLimit(pkg: String, label: String, current: Int) {
+        val field = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "Minutes par jour (0 = illimité)"
+            if (current > 0) setText(current.toString())
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Temps d'écran : $label")
+            .setView(field)
+            .setPositiveButton("Enregistrer") { _, _ ->
+                Store.setLimit(this, pkg, field.text.toString().toIntOrNull() ?: 0)
+                Rules.enforce(this)
+                refresh()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
     }
 
     private fun installFromUrl() {

@@ -54,6 +54,7 @@ class ParentActivity : Activity() {
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            addJavascriptInterface(MapBridge(), "Android")
             loadDataWithBaseURL("https://telenfant.local/", MAP_HTML, "text/html", "utf-8", null)
             webViewClient = object : android.webkit.WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -69,12 +70,69 @@ class ParentActivity : Activity() {
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = Ui.dp(this@ParentActivity, 4) })
         bar.addView(Ui.button(this, "🧭 Y aller", Ui.BLUE, 16f) { navigate() },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = Ui.dp(this@ParentActivity, 4); marginEnd = Ui.dp(this@ParentActivity, 4) })
+        bar.addView(Ui.button(this, "🎛️ Piloter", 0xFF6A1B9A.toInt(), 16f) {
+            startActivity(Intent(this, ParentControlActivity::class.java))
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = Ui.dp(this@ParentActivity, 4); marginEnd = Ui.dp(this@ParentActivity, 4) })
         bar.addView(Ui.button(this, "⚙️", Ui.GREY, 16f) { askCode(cancellable = true) },
             LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = Ui.dp(this@ParentActivity, 4) })
         root.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         setContentView(root)
 
         if (Store.parentCode(this).isBlank()) askCode(cancellable = false)
+        ParentJob.schedule(this)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1)
+        }
+        info.setOnClickListener { zonesDialog() }
+    }
+
+    /** Appui long sur la carte : créer une zone (maison, école…). */
+    inner class MapBridge {
+        @android.webkit.JavascriptInterface
+        fun longPress(lat: Double, lon: Double) {
+            runOnUiThread { addZone(lat, lon) }
+        }
+    }
+
+    private fun addZone(lat: Double, lon: Double) {
+        val box = Ui.vertical(this, 16)
+        val name = EditText(this).apply { hint = "Nom (ex : Maison, École)" }
+        val radius = EditText(this).apply {
+            hint = "Rayon en mètres (150 par défaut)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        box.addView(name); box.addView(radius)
+        AlertDialog.Builder(this)
+            .setTitle("Nouvelle zone")
+            .setMessage("Vous serez prévenu à chaque arrivée et départ.")
+            .setView(box)
+            .setPositiveButton("Créer") { _, _ ->
+                val n = name.text.toString().trim().ifEmpty { "Zone" }
+                val r = (radius.text.toString().toIntOrNull() ?: 150).coerceIn(50, 2000)
+                ParentStore.saveZones(this, ParentStore.zones(this) + Zone(n, lat, lon, r))
+                refresh()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun zonesDialog() {
+        val zones = ParentStore.zones(this)
+        if (zones.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("Zones")
+                .setMessage("Aucune zone. Faites un appui long sur la carte pour en créer une (maison, école…).")
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Zones (toucher pour supprimer)")
+            .setItems(zones.map { "📍 ${it.name} (${it.radius} m)" }.toTypedArray()) { _, i ->
+                ParentStore.saveZones(this, zones.filterIndexed { j, _ -> j != i })
+                refresh()
+            }
+            .setPositiveButton("Fermer", null)
+            .show()
     }
 
     override fun onResume() {
@@ -154,6 +212,7 @@ class ParentActivity : Activity() {
         val ago = (System.currentTimeMillis() - latest.optLong("t")) / 60_000
         info.text = "$name · vu il y a ${if (ago < 1) "moins d'1" else ago.toString()} min (${fmt.format(Date(latest.optLong("t")))})" +
             " · 🔋 ${latest.optInt("bat")} %" +
+            (if (ParentStore.zones(this).isNotEmpty()) " · zones : ${ParentStore.get(this, "zone").ifEmpty { "aucune" }}" else "") +
             (last?.let { " · précision ${it.optDouble("acc").toInt()} m" } ?: "")
 
         val arr = JSONArray()
@@ -162,7 +221,8 @@ class ParentActivity : Activity() {
                 .put("acc", it.optDouble("acc")).put("sos", it.optBoolean("sos"))
                 .put("label", fmt.format(Date(it.optLong("t")))))
         }
-        if (mapReady) web.evaluateJavascript("show(${arr});", null)
+        if (mapReady) web.evaluateJavascript("show(${arr}, ${ParentStore.zonesJson(this)});", null)
+        ParentJob.check(this, points)
 
         val sos = points.filter { it.optBoolean("sos") }.maxByOrNull { it.optLong("t") }
         if (sos != null && sos.optLong("t") > lastSosAlert && System.currentTimeMillis() - sos.optLong("t") < 3 * 3600_000L) {
@@ -191,7 +251,11 @@ class ParentActivity : Activity() {
 var map=L.map('m').setView([46.6,2.4],5);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 var layer=L.layerGroup().addTo(map);
-function show(pts){layer.clearLayers();if(!pts.length)return;
+var zl=L.layerGroup().addTo(map);
+map.on('contextmenu',function(e){Android.longPress(e.latlng.lat,e.latlng.lng);});
+function show(pts,zones){layer.clearLayers();zl.clearLayers();
+(zones||[]).forEach(function(z){L.circle([z.lat,z.lon],{radius:z.r,color:'#6A1B9A',weight:2,fillOpacity:.08}).bindTooltip(z.n,{permanent:true,direction:'center'}).addTo(zl);});
+if(!pts.length)return;
 var line=pts.map(function(p){return [p.lat,p.lon]});
 L.polyline(line,{color:'#1565C0',weight:3,opacity:.5}).addTo(layer);
 pts.forEach(function(p,i){var last=i==pts.length-1;

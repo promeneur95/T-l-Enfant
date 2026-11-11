@@ -119,6 +119,10 @@ object Policy {
         val pkg = c.packageName
         RESTRICTIONS.forEach { r -> safe(r) { d.clearUserRestriction(a, r) } }
         safe("uninstall") { d.setUninstallBlocked(a, pkg, false) }
+        safe("suspend") {
+            val apps = Store.allowedApps(c) + listOfNotNull(CameraApp.packageName(c))
+            if (apps.isNotEmpty()) d.setPackagesSuspended(a, apps.toTypedArray(), false)
+        }
         safe("home") { d.clearPackagePersistentPreferredActivities(a, pkg) }
         safe("locktask") { d.setLockTaskPackages(a, arrayOf()) }
         safe("keyguard") { d.setKeyguardDisabled(a, false) }

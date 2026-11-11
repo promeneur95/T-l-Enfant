@@ -63,6 +63,13 @@ object PhotoLog {
         save(c, all(c).map { if (it.id == id) it.copy(status = status) else it })
     }
 
+    @Synchronized
+    fun markSeen(c: Context, number: String) {
+        val k = Store.key(number)
+        if (all(c).none { it.key == k && it.status == "new" }) return
+        save(c, all(c).map { if (it.key == k && it.status == "new") it.copy(status = "seen") else it })
+    }
+
     fun forNumber(c: Context, number: String): List<Photo> {
         val k = Store.key(number)
         return all(c).filter { it.key == k }
@@ -226,7 +233,13 @@ class MmsPduProvider : ContentProvider() {
         val ctx = context ?: return null
         val dir = Mms.pduDir(ctx).canonicalFile
         val f = File(dir, uri.lastPathSegment ?: return null).canonicalFile
-        if (f.parentFile != dir || !f.exists()) return null
+        if (f.parentFile != dir) return null
+        if (mode.contains("w")) {
+            // Téléchargement d'un MMS reçu : le service MMS écrit ici
+            return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_WRITE or
+                ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE)
+        }
+        if (!f.exists()) return null
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
@@ -235,4 +248,170 @@ class MmsPduProvider : ContentProvider() {
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, s: String?, a: Array<out String>?) = 0
     override fun update(uri: Uri, v: ContentValues?, s: String?, a: Array<out String>?) = 0
+}
+
+
+// ======================= Réception des MMS =======================
+
+/** Lecture des messages MMS binaires (format WAP/OMA). */
+object MmsPdu {
+    private class Reader(val b: ByteArray, var i: Int = 0) {
+        fun has() = i < b.size
+        fun u8() = b[i++].toInt() and 0xFF
+        fun peek() = b[i].toInt() and 0xFF
+        fun uintvar(): Int {
+            var v = 0
+            while (true) {
+                val x = u8()
+                v = (v shl 7) or (x and 0x7F)
+                if (x and 0x80 == 0) return v
+            }
+        }
+        fun text(): ByteArray {
+            val start = i
+            while (i < b.size && b[i].toInt() != 0) i++
+            val r = b.copyOfRange(start, i)
+            if (i < b.size) i++
+            return r
+        }
+        /** Valeur d'en-tête : entier court, valeur à longueur, ou texte. */
+        fun value(): ByteArray {
+            val x = peek()
+            return when {
+                x >= 0x80 -> { i++; byteArrayOf(x.toByte()) }
+                x <= 0x1E -> { i++; val r = b.copyOfRange(i, minOf(b.size, i + x)); i += x; r }
+                x == 0x1F -> { i++; val l = uintvar(); val r = b.copyOfRange(i, minOf(b.size, i + l)); i += l; r }
+                else -> text()
+            }
+        }
+    }
+
+    class Parsed(val headers: Map<Int, ByteArray>, val bodyStart: Int, val bytes: ByteArray) {
+        fun type() = headers[0x0C]?.firstOrNull()?.toInt()?.and(0xFF) ?: 0
+        fun contentLocation() = headers[0x03]?.let { printable(it) }
+        fun from(): String? {
+            val v = headers[0x09] ?: return null
+            if (v.isEmpty() || (v[0].toInt() and 0xFF) == 0x81) return null
+            return printable(v.copyOfRange(1, v.size)).substringBefore("/").trim().ifEmpty { null }
+        }
+    }
+
+    /** Ne garde que les caractères imprimables (retire longueurs, jeux de caractères…). */
+    private fun printable(b: ByteArray) = String(b.filter { it.toInt() in 0x20..0x7E }.toByteArray(), Charsets.US_ASCII).trim('"', '\u007F', ' ')
+
+    fun parse(b: ByteArray): Parsed {
+        val r = Reader(b)
+        val map = mutableMapOf<Int, ByteArray>()
+        while (r.has()) {
+            val f = r.peek()
+            if (f and 0x80 == 0) { r.text(); r.text(); continue } // en-tête applicatif
+            r.u8()
+            val v = r.value()
+            map[f and 0x7F] = v
+            if (f == 0x84) break // Content-Type : le corps commence
+        }
+        return Parsed(map, r.i, b)
+    }
+
+    data class Part(val mime: String, val data: ByteArray)
+
+    private val WELL_KNOWN = mapOf(
+        0x03 to "text/plain", 0x1D to "image/gif", 0x1E to "image/jpeg", 0x1F to "image/tiff",
+        0x20 to "image/png", 0x21 to "image/vnd.wap.wbmp", 0x33 to "application/smil",
+    )
+
+    private fun mimeOf(h: ByteArray): String {
+        if (h.isEmpty()) return "?"
+        val x = h[0].toInt() and 0xFF
+        return when {
+            x >= 0x80 -> WELL_KNOWN[x and 0x7F] ?: "?"
+            x <= 0x1F -> {
+                val r = Reader(h, 1)
+                if (x == 0x1F) r.uintvar()
+                if (!r.has()) return "?"
+                val y = r.peek()
+                if (y >= 0x80) WELL_KNOWN[y and 0x7F] ?: "?" else String(r.text(), Charsets.US_ASCII).lowercase()
+            }
+            else -> String(Reader(h).text(), Charsets.US_ASCII).lowercase()
+        }
+    }
+
+    fun parts(p: Parsed): List<Part> {
+        val out = mutableListOf<Part>()
+        try {
+            val r = Reader(p.bytes, p.bodyStart)
+            val n = r.uintvar()
+            repeat(n) {
+                val hl = r.uintvar()
+                val dl = r.uintvar()
+                val h = p.bytes.copyOfRange(r.i, r.i + hl)
+                r.i += hl
+                val d = p.bytes.copyOfRange(r.i, minOf(p.bytes.size, r.i + dl))
+                r.i += dl
+                out += Part(mimeOf(h), d)
+            }
+        } catch (_: Exception) {}
+        return out
+    }
+}
+
+/** Avis de MMS reçu : on ne télécharge que ceux des contacts autorisés. */
+class MmsReceiver : BroadcastReceiver() {
+    @Suppress("DEPRECATION")
+    override fun onReceive(context: Context, intent: Intent) {
+        val data = intent.getByteArrayExtra("data") ?: return
+        val pdu = try { MmsPdu.parse(data) } catch (_: Exception) { return }
+        if (pdu.type() != 0x82) return // m-notification-ind
+        val from = pdu.from()
+        if (!Store.isAllowed(context, from)) {
+            Store.logBlocked(context, "photo", from)
+            return
+        }
+        val location = pdu.contentLocation() ?: return
+        val name = "in_${System.currentTimeMillis()}.pdu"
+        File(Mms.pduDir(context), name).createNewFile()
+        val pi = PendingIntent.getBroadcast(
+            context, name.hashCode(),
+            Intent(context, MmsDownloadReceiver::class.java).putExtra("file", name).putExtra("from", from),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+        try {
+            val sm: SmsManager = if (Build.VERSION.SDK_INT >= 31) context.getSystemService(SmsManager::class.java)
+            else SmsManager.getDefault()
+            sm.downloadMultimediaMessage(context, location, Uri.parse("content://fr.promeneur.telenfant.mms/$name"), null, pi)
+        } catch (_: Exception) {}
+    }
+}
+
+/** MMS téléchargé : extraction des photos et du texte. */
+class MmsDownloadReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val file = File(Mms.pduDir(context), intent.getStringExtra("file") ?: return)
+        try {
+            if (resultCode != Activity.RESULT_OK || !file.exists() || file.length() == 0L) return
+            val pdu = MmsPdu.parse(file.readBytes())
+            val from = pdu.from() ?: intent.getStringExtra("from") ?: return
+            if (!Store.isAllowed(context, from)) return
+            var got = false
+            MmsPdu.parts(pdu).forEach { part ->
+                when {
+                    part.mime.startsWith("image/") -> {
+                        PhotoLog.add(context, from, part.data, incoming = true, status = "new"); got = true
+                    }
+                    part.mime == "text/plain" -> {
+                        val txt = String(part.data, Charsets.UTF_8).trim()
+                        if (txt.isNotEmpty()) { SmsStore.insert(context, from, txt, incoming = true); got = true }
+                    }
+                    else -> {}
+                }
+            }
+            if (got) {
+                SmsStore.alert(context)
+                SmsStore.changed(context)
+            }
+        } catch (_: Exception) {
+        } finally {
+            file.delete()
+        }
+    }
 }

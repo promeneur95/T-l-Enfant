@@ -221,6 +221,20 @@ class SmsActivity : Activity() {
         }.start()
     }
 
+    /** Photo en grand. */
+    private fun showFull(path: String) {
+        val bmp = try { BitmapFactory.decodeFile(path) } catch (_: Exception) { null } ?: return
+        val img = ImageView(this).apply {
+            setImageBitmap(bmp)
+            adjustViewBounds = true
+            setBackgroundColor(Color.BLACK)
+        }
+        AlertDialog.Builder(this)
+            .setView(img)
+            .setPositiveButton("Fermer", null)
+            .show()
+    }
+
     private fun contactName() = Store.find(this, number)?.name ?: number
 
     private fun thumbnail(path: String): Bitmap? = try {
@@ -264,6 +278,7 @@ class SmsActivity : Activity() {
                         adjustViewBounds = true
                         maxWidth = Ui.dp(this@SmsActivity, 220)
                         maxHeight = Ui.dp(this@SmsActivity, 280)
+                        setOnClickListener { showFull(item.path) }
                     }
                     bubble.addView(img, LinearLayout.LayoutParams(Ui.dp(this, 220), WRAP_CONTENT))
                     footer += when (item.status) {
@@ -282,6 +297,7 @@ class SmsActivity : Activity() {
             thread.addView(bubble, lp)
         }
         SmsStore.markRead(this, msgs.filter { it.incoming }.map { it.id })
+        PhotoLog.markSeen(this, number)
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 }

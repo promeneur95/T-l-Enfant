@@ -60,6 +60,7 @@ object SmsStore {
 
     fun unreadByKey(c: Context): Map<String, Int> {
         val map = mutableMapOf<String, Int>()
+        PhotoLog.all(c).filter { it.incoming && it.status == "new" }.forEach { map[it.key] = (map[it.key] ?: 0) + 1 }
         try {
             c.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI, arrayOf(Telephony.Sms.ADDRESS),
@@ -124,7 +125,7 @@ class SmsReceiver : BroadcastReceiver() {
         val sender = msgs[0].originatingAddress ?: return
         val body = msgs.joinToString("") { it.messageBody ?: "" }
         if (!Store.isAllowed(context, sender)) {
-            Store.incBlocked(context)
+            Store.logBlocked(context, "sms", sender, body)
             return
         }
         SmsStore.insert(context, sender, body, incoming = true, sentAt = msgs[0].timestampMillis)
@@ -133,10 +134,6 @@ class SmsReceiver : BroadcastReceiver() {
     }
 }
 
-/** MMS ignorés (requis pour être appli SMS par défaut). */
-class MmsReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = Unit
-}
 
 /** « Répondre par message » depuis un appel entrant : limité aux contacts autorisés. */
 class HeadlessSmsSendService : Service() {

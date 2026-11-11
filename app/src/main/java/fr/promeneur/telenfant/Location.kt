@@ -166,63 +166,76 @@ object Tracker {
         String(cipher.doFinal(all.copyOfRange(12, all.size)))
     } catch (_: Exception) { null }
 
+    /** Envoie un message chiffré sur un canal (à appeler hors du fil principal). */
+    fun post(code: String, topic: String, json: JSONObject): Boolean = try {
+        val conn = (URL("$SERVER/$topic").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 15000
+            readTimeout = 15000
+            setRequestProperty("Content-Type", "text/plain")
+        }
+        conn.outputStream.use { it.write(encrypt(code, json.toString()).toByteArray()) }
+        val ok = conn.responseCode in 200..299
+        conn.disconnect()
+        ok
+    } catch (_: Exception) { false }
+
     /** Envoie la position (à appeler hors du fil principal). */
-    fun publish(c: Context, loc: Location?, sos: Boolean) {
+    fun publish(c: Context, loc: Location?, sos: Boolean, kind: String = "pos") {
         if (!Store.trackingEnabled(c)) return
         val code = Store.trackingCode(c)
         val json = JSONObject()
+            .put("type", kind)
             .put("name", Store.childName(c))
             .put("t", System.currentTimeMillis())
             .put("bat", Locator.battery(c))
             .put("sos", sos)
         if (loc != null) json.put("lat", loc.latitude).put("lon", loc.longitude).put("acc", loc.accuracy.toDouble())
-        try {
-            val conn = (URL("$SERVER/${topic(code)}").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("Content-Type", "text/plain")
-                setRequestProperty("Cache", "yes")
-            }
-            conn.outputStream.use { it.write(encrypt(code, json.toString()).toByteArray()) }
-            conn.responseCode
-            conn.disconnect()
-        } catch (_: Exception) {}
+        post(code, topic(code), json)
     }
 
-    /** Côté parent : positions reçues depuis `sinceSec` secondes. */
-    fun poll(code: String, since: String): List<JSONObject> {
-        val out = mutableListOf<JSONObject>()
-        val conn = (URL("$SERVER/${topic(code)}/json?poll=1&since=$since").openConnection() as HttpURLConnection).apply {
+    /** Messages reçus sur un canal : (identifiant ntfy, contenu déchiffré). */
+    fun pollEvents(code: String, topic: String, since: String): List<Pair<String, JSONObject>> {
+        val out = mutableListOf<Pair<String, JSONObject>>()
+        val conn = (URL("$SERVER/$topic/json?poll=1&since=$since").openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 30000
         }
-        conn.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { line ->
-                try {
-                    val ev = JSONObject(line)
-                    if (ev.optString("event") == "message") {
-                        decrypt(code, ev.optString("message"))?.let { out += JSONObject(it) }
-                    }
-                } catch (_: Exception) {}
-            }
+        val lines = conn.inputStream.bufferedReader().use { it.readLines() }
+        lines.forEach { line ->
+            try {
+                val ev = JSONObject(line)
+                if (ev.optString("event") != "message") return@forEach
+                // Messages longs : ntfy les transforme en pièce jointe
+                val body = ev.optJSONObject("attachment")?.optString("url")?.takeIf { it.isNotEmpty() }?.let { url ->
+                    (URL(url).openConnection() as HttpURLConnection).inputStream.bufferedReader().use { it.readText() }
+                } ?: ev.optString("message")
+                decrypt(code, body.trim())?.let { out += ev.optString("id") to JSONObject(it) }
+            } catch (_: Exception) {}
         }
         return out
     }
+
+    /** Côté parent : positions et états reçus. */
+    fun poll(code: String, since: String): List<JSONObject> = pollEvents(code, topic(code), since).map { it.second }
 }
 
-/** Service de suivi : envoie la position régulièrement (toutes les 6 min au plus, 30 min sans déplacement). */
+/**
+ * Service « gardien » du téléphone de l'enfant, toujours actif :
+ * suivi de position (si activé), plages horaires, temps d'écran, alertes batterie, commandes à distance.
+ */
 class TrackingService : Service() {
     companion object {
         private const val MIN_INTERVAL = 6 * 60_000L
         private const val HEARTBEAT = 30 * 60_000L
         private const val MIN_DISTANCE = 100f
+        private const val TICK = 60_000L
 
         fun sync(c: Context) {
             val i = Intent(c, TrackingService::class.java)
             try {
-                if (Store.trackingEnabled(c) && Locator.hasPermission(c)) c.startForegroundService(i) else c.stopService(i)
+                if (Store.mode(c) == "child" && Locator.hasPermission(c)) c.startForegroundService(i) else c.stopService(i)
             } catch (_: Exception) {}
         }
     }
@@ -230,6 +243,7 @@ class TrackingService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastSent: Location? = null
     private var lastSentAt = 0L
+    private var listening = false
 
     private val listener = object : LocationListener {
         override fun onLocationChanged(location: Location) = consider(location)
@@ -241,42 +255,93 @@ class TrackingService : Service() {
 
     private val heartbeat = object : Runnable {
         override fun run() {
-            Locator.current(this@TrackingService, 30_000) { loc -> send(loc) }
+            if (Store.trackingEnabled(this@TrackingService)) {
+                Locator.current(this@TrackingService, 30_000) { loc -> send(loc) }
+            }
             handler.postDelayed(this, HEARTBEAT)
+        }
+    }
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            tick()
+            handler.postDelayed(this, TICK)
         }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    @SuppressLint("MissingPermission")
     override fun onCreate() {
         super.onCreate()
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("suivi", "Partage de position", NotificationManager.IMPORTANCE_MIN))
+        nm.createNotificationChannel(NotificationChannel("suivi", "Protection du téléphone", NotificationManager.IMPORTANCE_MIN))
         val notif = Notification.Builder(this, "suivi")
-            .setContentTitle("Position partagée avec tes parents")
+            .setContentTitle("Tél Enfant veille sur ce téléphone")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(7, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         else startForeground(7, notif)
-
-        val lm = getSystemService(LocationManager::class.java)
-        lm?.getProviders(true)?.forEach { p ->
-            try { lm.requestLocationUpdates(p, 60_000L, 30f, listener, Looper.getMainLooper()) } catch (_: Exception) {}
-        }
+        updateListening()
         handler.post(heartbeat)
+        handler.post(ticker)
+        try { registerReceiver(shutdown, android.content.IntentFilter(Intent.ACTION_SHUTDOWN)) } catch (_: Exception) {}
     }
 
+    private val shutdown = ShutdownReceiver()
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!Store.trackingEnabled(this)) stopSelf()
+        if (Store.mode(this) != "child") stopSelf() else updateListening()
         return START_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(heartbeat)
-        try { getSystemService(LocationManager::class.java)?.removeUpdates(listener) } catch (_: Exception) {}
+        handler.removeCallbacks(ticker)
+        try { unregisterReceiver(shutdown) } catch (_: Exception) {}
+        stopListening()
         super.onDestroy()
+    }
+
+    /** GPS uniquement quand le suivi est activé (économie de batterie). */
+    @SuppressLint("MissingPermission")
+    private fun updateListening() {
+        val want = Store.trackingEnabled(this)
+        if (want == listening) return
+        if (!want) { stopListening(); return }
+        val lm = getSystemService(LocationManager::class.java) ?: return
+        lm.getProviders(true).forEach { p ->
+            try { lm.requestLocationUpdates(p, 60_000L, 30f, listener, Looper.getMainLooper()) } catch (_: Exception) {}
+        }
+        listening = true
+    }
+
+    private fun stopListening() {
+        try { getSystemService(LocationManager::class.java)?.removeUpdates(listener) } catch (_: Exception) {}
+        listening = false
+    }
+
+    private fun tick() {
+        val app = applicationContext
+        updateListening()
+        try {
+            Rules.flushUsage(app)
+            Rules.enforce(app)
+        } catch (_: Exception) {}
+        checkBattery()
+        if (Store.trackingEnabled(app)) Thread { try { Remote.pollCommands(app) } catch (_: Exception) {} }.start()
+    }
+
+    private fun checkBattery() {
+        val app = applicationContext
+        val level = Locator.battery(app)
+        val charging = getSystemService(BatteryManager::class.java)?.isCharging == true
+        if (charging || level >= 30) { Store.setBatteryAlerted(app, false); return }
+        if (level in 0..15 && !Store.batteryAlerted(app) && Store.alertsEnabled(app)) {
+            Store.setBatteryAlerted(app, true)
+            Alerts.sms(app, "Batterie faible ($level %) sur le téléphone de ${Alerts.name(app)}. Pensez à le recharger.")
+            Thread { Tracker.publish(app, Locator.lastKnown(app), sos = false) }.start()
+        }
     }
 
     private fun consider(loc: Location) {
@@ -290,5 +355,23 @@ class TrackingService : Service() {
         lastSentAt = System.currentTimeMillis()
         if (loc != null) lastSent = loc
         Thread { Tracker.publish(applicationContext, loc, sos = false) }.start()
+    }
+}
+
+/** SMS automatiques aux parents (contacts SOS). */
+object Alerts {
+    fun name(c: Context) = Store.childName(c).ifBlank { "votre enfant" }
+
+    fun sms(c: Context, text: String) {
+        Thread { Sos.targets(c).forEach { SmsStore.send(c, it.number, text) } }.start()
+    }
+}
+
+/** Extinction du téléphone : prévenir les parents. */
+class ShutdownReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (Store.mode(context) != "child" || !Store.alertsEnabled(context)) return
+        val text = "Le téléphone de ${Alerts.name(context)} s'éteint (batterie ${Locator.battery(context)} %)."
+        Sos.targets(context).forEach { SmsStore.send(context, it.number, text) }
     }
 }

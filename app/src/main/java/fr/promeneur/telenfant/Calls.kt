@@ -74,6 +74,10 @@ object CallManager {
 
     fun dial(c: Context, number: String) {
         val emergency = Store.isEmergencyNumber(number)
+        if (!emergency && !isVoicemail(c, number) && Store.isAllowed(c, number) && !Rules.numberAllowedNow(c, number)) {
+            Toast.makeText(c, "Mode école : seuls tes parents sont joignables", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (!emergency && !Store.isAllowed(c, number) && !isVoicemail(c, number)) {
             Toast.makeText(c, "Numéro non autorisé", Toast.LENGTH_SHORT).show()
             return
@@ -110,7 +114,7 @@ class CallService : InCallService() {
         val number = call.details.handle?.schemeSpecificPart
         val incoming = call.details.callDirection == Call.Details.DIRECTION_INCOMING
         if (incoming && !Store.incomingAllowed(this, number)) {
-            Store.incBlocked(this)
+            Store.logBlocked(this, "appel", number, reason = Store.blockReason(this, number))
             call.reject(false, null)
             return
         }
@@ -143,7 +147,8 @@ class ScreeningService : CallScreeningService() {
         val response = if (allowed) {
             CallResponse.Builder().build()
         } else {
-            Store.incBlocked(this)
+            val n = details.handle?.schemeSpecificPart
+            Store.logBlocked(this, "appel", n, reason = Store.blockReason(this, n))
             CallResponse.Builder()
                 .setDisallowCall(true)
                 .setRejectCall(true)

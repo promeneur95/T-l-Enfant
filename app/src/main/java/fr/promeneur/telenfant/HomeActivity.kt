@@ -138,6 +138,8 @@ class HomeActivity : Activity() {
 
     private fun resumeChild() {
         if (Store.mode(this) != "child" || !::content.isInitialized) return
+        Rules.backHome(this)
+        Rules.enforce(this)
         enterKiosk()
         buildContent()
         updateClock()
@@ -261,7 +263,14 @@ class HomeActivity : Activity() {
 
         // Contacts + applis
         val body = Ui.vertical(this, 12)
-        val contacts = Store.contacts(this)
+        Rules.banner(this)?.let { b ->
+            body.addView(Ui.text(this, b, 16f, Color.WHITE, true).apply {
+                gravity = Gravity.CENTER
+                background = Ui.rounded(0xCC37474F.toInt(), Ui.dp(context, 16).toFloat())
+                setPadding(Ui.dp(context, 12), Ui.dp(context, 10), Ui.dp(context, 12), Ui.dp(context, 10))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = Ui.dp(this@HomeActivity, 8) })
+        }
+        val contacts = Store.contacts(this).filter { Rules.contactAllowedNow(this, it) }
         if (contacts.isEmpty()) {
             body.addView(Ui.text(this, "🧸\nAucun contact pour l'instant.\nDemande à un parent de les ajouter.", 18f, Ui.TEXT).apply {
                 gravity = Gravity.CENTER
@@ -379,6 +388,7 @@ class HomeActivity : Activity() {
     }
 
     private fun addApps(body: LinearLayout, p: Palette) {
+        if (Rules.mode(this) != Rules.Mode.NORMAL) return
         val pm = packageManager
         val pkgs = Store.allowedApps(this).toMutableList()
         if (Store.cameraEnabled(this)) CameraApp.packageName(this)?.let { if (it !in pkgs) pkgs.add(0, it) }
@@ -400,8 +410,14 @@ class HomeActivity : Activity() {
                     gravity = Gravity.CENTER_HORIZONTAL
                     background = Ui.rounded(0xCCFFFFFF.toInt(), Ui.dp(context, 18).toFloat())
                     setOnClickListener {
-                        try { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                        catch (_: Exception) { toast("Impossible d'ouvrir l'appli") }
+                        val left = Rules.remainingSeconds(this@HomeActivity, meta.first)
+                        if (left != null && left <= 0) {
+                            toast("⏳ Plus de temps pour ${meta.second} aujourd'hui. À demain !")
+                        } else {
+                            Rules.appOpened(this@HomeActivity, meta.first)
+                            try { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            catch (_: Exception) { toast("Impossible d'ouvrir l'appli") }
+                        }
                     }
                 }
                 cell.addView(ImageView(this).apply { setImageDrawable(meta.third) },
@@ -409,6 +425,12 @@ class HomeActivity : Activity() {
                 cell.addView(Ui.text(this, meta.second, 12f, Ui.TEXT).apply {
                     gravity = Gravity.CENTER; maxLines = 1
                 }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+                Rules.remainingSeconds(this, meta.first)?.let { left ->
+                    cell.addView(Ui.text(this, if (left > 0) "⏳ ${left / 60} min" else "⏳ fini", 11f,
+                        if (left > 0) Ui.GREY else Ui.RED, true).apply { gravity = Gravity.CENTER },
+                        LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+                    if (left <= 0) cell.alpha = 0.5f
+                }
                 row.addView(cell, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
                     val m = Ui.dp(this@HomeActivity, 4); setMargins(m, m, m, m)
                 })

@@ -172,6 +172,59 @@ class AdminActivity : Activity() {
         root.addView(voicemailBtn, full())
         root.addView(Ui.text(this, "La galerie reste bloquée : les photos se consultent et s'envoient depuis les messages.", 13f, Ui.GREY))
 
+        // --- Plages horaires
+        section(root, "🕘 Plages horaires")
+        root.addView(Ui.text(this, "Mode école : seuls les contacts SOS (parents) sont joignables et les applis sont en pause. Mode nuit : applis en pause, appels possibles.", 13f, Ui.GREY))
+        @Suppress("DEPRECATION")
+        val schoolSw = Switch(this).apply { text = "🏫 Mode école"; textSize = 16f; isChecked = Store.schoolEnabled(this@AdminActivity) }
+        root.addView(schoolSw)
+        val dayNames = listOf(2 to "Lun", 3 to "Mar", 4 to "Mer", 5 to "Jeu", 6 to "Ven", 7 to "Sam", 1 to "Dim")
+        val days = Store.schoolDays(this).toMutableSet()
+        val dayRow = Ui.horizontal(this)
+        dayNames.forEach { (d, label) ->
+            val b = Button(this).apply { text = label; textSize = 12f; isAllCaps = false }
+            fun paint() { b.alpha = if (d in days) 1f else 0.35f }
+            paint()
+            b.setOnClickListener { if (d in days) days -= d else days += d; paint() }
+            dayRow.addView(b, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        }
+        root.addView(dayRow)
+        val schoolStart = timeField(Store.schoolStart(this), "Début (08:15)")
+        val schoolEnd = timeField(Store.schoolEnd(this), "Fin (16:30)")
+        root.addView(Ui.horizontal(this).apply {
+            addView(schoolStart, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(schoolEnd, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        })
+        @Suppress("DEPRECATION")
+        val nightSw = Switch(this).apply { text = "🌙 Mode nuit (tous les jours)"; textSize = 16f; isChecked = Store.nightEnabled(this@AdminActivity) }
+        root.addView(nightSw)
+        val nightStart = timeField(Store.nightStart(this), "Début (21:00)")
+        val nightEnd = timeField(Store.nightEnd(this), "Fin (07:00)")
+        root.addView(Ui.horizontal(this).apply {
+            addView(nightStart, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(nightEnd, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        })
+        root.addView(Ui.button(this, "Enregistrer les plages horaires", Ui.GREEN) {
+            val times = listOf(schoolStart, schoolEnd, nightStart, nightEnd).map { it.text.toString().trim() }
+            if (times.any { !Rules.validTime(it) }) { toast("Heures au format HH:MM, ex : 08:15"); return@button }
+            Store.setSchool(this, schoolSw.isChecked, days, times[0], times[1])
+            Store.setNight(this, nightSw.isChecked, times[2], times[3])
+            Rules.enforce(this)
+            toast("Plages horaires enregistrées")
+        }, full())
+
+        // --- Alertes et journal
+        section(root, "🚨 Alertes et journal")
+        @Suppress("DEPRECATION")
+        val alertSw = Switch(this).apply {
+            text = "SMS automatiques aux contacts SOS : batterie faible (15 %), extinction du téléphone"
+            textSize = 15f
+            isChecked = Store.alertsEnabled(this@AdminActivity)
+            setOnCheckedChangeListener { _, on -> Store.setAlertsEnabled(this@AdminActivity, on) }
+        }
+        root.addView(alertSw)
+        root.addView(Ui.button(this, "📋 Voir les appels et messages bloqués", Ui.BLUE) { showJournal() }, full())
+
         // --- Réglages
         section(root, "⚙️ Réglages")
         root.addView(Ui.button(this, "🔑 Changer le code admin", Ui.BLUE) {
@@ -297,6 +350,29 @@ class AdminActivity : Activity() {
                 .setNegativeButton("Annuler", null)
                 .show()
         }
+    }
+
+    private fun timeField(value: String, hint: String) = EditText(this).apply {
+        setText(value); this.hint = hint; textSize = 18f
+        inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME
+        gravity = Gravity.CENTER
+    }
+
+    private fun showJournal() {
+        val j = Store.journal(this)
+        val fmt = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.FRANCE)
+        val lines = (j.length() - 1 downTo 0).map { i ->
+            val o = j.getJSONObject(i)
+            val icon = when (o.optString("k")) { "appel" -> "📞"; "sms" -> "💬"; "photo" -> "🖼️"; else -> "•" }
+            val txt = o.optString("x").let { if (it.isNotBlank()) "\n   « $it »" else "" }
+            "$icon ${fmt.format(java.util.Date(o.optLong("t")))}  ${o.optString("n")}  (${o.optString("r")})$txt"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Bloqués (${j.length()})")
+            .setMessage(if (lines.isEmpty()) "Rien de bloqué pour l'instant." else lines.joinToString("\n\n"))
+            .setPositiveButton("Fermer", null)
+            .setNeutralButton("Effacer") { _, _ -> Store.clearJournal(this); refresh() }
+            .show()
     }
 
     private fun pickEmoji(onPick: (String) -> Unit) {
