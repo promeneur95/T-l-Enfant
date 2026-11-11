@@ -7,59 +7,122 @@ import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
-/** Menu parent (protégé par le code admin). */
+/** Menu parent (protégé par le code admin). Le kiosque est suspendu tant que ce menu est ouvert. */
 class AdminActivity : Activity() {
 
     private lateinit var contactsBox: LinearLayout
     private lateinit var info: TextView
+    private lateinit var codeView: TextView
+    private var newEmoji = "🙂"
+
+    private val emojis = listOf(
+        "👨", "👩", "👴", "👵", "🧔", "👱‍♀️", "👦", "👧", "👶", "🧑‍🏫", "👮", "🧑‍⚕️",
+        "🦁", "🐻", "🐼", "🐶", "🐱", "🦊", "🐸", "🐵", "🦄", "🐲", "⭐", "❤️",
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ScreenOff.closeOnScreenOff(this)
         val root = Ui.vertical(this, 16).apply { setBackgroundColor(Ui.BG) }
 
         root.addView(Ui.text(this, "Menu parent", 26f, Ui.GREEN, true))
         info = Ui.text(this, "", 14f, Ui.GREY)
         root.addView(info)
-        root.addView(Ui.space(this, 12))
+
+        // --- Enfant
+        section(root, "👧 Enfant")
+        val nameF = EditText(this).apply {
+            hint = "Prénom (affiché à l'accueil et dans les SOS)"
+            setText(Store.childName(this@AdminActivity)); textSize = 18f
+        }
+        root.addView(nameF)
+        root.addView(Ui.button(this, "Enregistrer le prénom", Ui.GREY) {
+            Store.setChildName(this, nameF.text.toString().trim()); toast("Prénom enregistré")
+        }, full())
 
         // --- Contacts
-        root.addView(Ui.text(this, "Contacts autorisés", 20f, Ui.TEXT, true))
+        section(root, "📒 Contacts autorisés")
+        root.addView(Ui.text(this, "« SOS » : ce contact reçoit les alertes SOS avec la position. Sans contact SOS, tous les contacts sont prévenus.", 13f, Ui.GREY))
         contactsBox = Ui.vertical(this, 0)
         root.addView(contactsBox)
-        val nameF = EditText(this).apply { hint = "Nom (ex : Papa)"; textSize = 18f }
+        val nameC = EditText(this).apply { hint = "Nom (ex : Papa)"; textSize = 18f }
         val numF = EditText(this).apply {
             hint = "Numéro (ex : 06 12 34 56 78)"; textSize = 18f
             inputType = InputType.TYPE_CLASS_PHONE
         }
-        root.addView(nameF)
-        root.addView(numF)
+        val emojiBtn = Button(this).apply { text = newEmoji; textSize = 26f }
+        emojiBtn.setOnClickListener { pickEmoji { e -> newEmoji = e; emojiBtn.text = e } }
+        val line = Ui.horizontal(this)
+        line.addView(emojiBtn, LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)))
+        val fields = Ui.vertical(this, 0).apply { addView(nameC); addView(numF) }
+        line.addView(fields, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        root.addView(line)
+        @Suppress("DEPRECATION")
+        val sosSw = Switch(this).apply { text = "Contact SOS"; textSize = 16f }
+        root.addView(sosSw)
         root.addView(Ui.button(this, "➕ Ajouter le contact", Ui.GREEN) {
-            val n = nameF.text.toString().trim()
+            val n = nameC.text.toString().trim()
             val num = numF.text.toString().trim()
             if (n.isEmpty() || Store.key(num).length < 9) {
-                Toast.makeText(this, "Nom et numéro complet requis", Toast.LENGTH_SHORT).show()
-                return@button
+                toast("Nom et numéro complet requis"); return@button
             }
             if (Store.find(this, num) != null) {
-                Toast.makeText(this, "Ce numéro est déjà dans la liste", Toast.LENGTH_SHORT).show()
-                return@button
+                toast("Ce numéro est déjà dans la liste"); return@button
             }
-            Store.saveContacts(this, Store.contacts(this) + Contact(n, num))
-            nameF.setText(""); numF.setText("")
+            Store.saveContacts(this, Store.contacts(this) + Contact(n, num, newEmoji, sosSw.isChecked))
+            nameC.setText(""); numF.setText(""); sosSw.isChecked = false
+            newEmoji = "🙂"; emojiBtn.text = newEmoji
             refresh()
         }, full())
-        root.addView(Ui.space(this, 20))
+
+        // --- Localisation
+        section(root, "📍 Localisation")
+        @Suppress("DEPRECATION")
+        val trackSw = Switch(this).apply {
+            text = "Partager la position en permanence"
+            textSize = 16f
+            isChecked = Store.trackingEnabled(this@AdminActivity)
+            setOnCheckedChangeListener { _, on ->
+                Store.setTrackingEnabled(this@AdminActivity, on)
+                TrackingService.sync(this@AdminActivity)
+                refresh()
+            }
+        }
+        root.addView(trackSw)
+        codeView = Ui.text(this, "", 22f, Ui.TEXT, true).apply {
+            gravity = Gravity.CENTER
+            background = Ui.rounded(Color.WHITE, Ui.dp(context, 12).toFloat())
+            setPadding(0, Ui.dp(context, 12), 0, Ui.dp(context, 12))
+            setTextIsSelectable(true)
+        }
+        root.addView(codeView, full())
+        root.addView(Ui.text(this, "Sur le téléphone du parent : installer Tél Enfant (même APK), choisir « Téléphone du parent » puis saisir ce code. La position est chiffrée de bout en bout.", 13f, Ui.GREY))
+        root.addView(Ui.button(this, "🔁 Générer un nouveau code (l'ancien ne marchera plus)", Ui.GREY, 14f) {
+            AlertDialog.Builder(this)
+                .setMessage("Changer le code ? Il faudra saisir le nouveau sur le téléphone parent.")
+                .setPositiveButton("Changer") { _, _ -> Store.renewTrackingCode(this); refresh() }
+                .setNegativeButton("Annuler", null).show()
+        }, full())
+
+        // --- Applications
+        section(root, "🎮 Applications")
+        root.addView(Ui.button(this, "Choisir les applis autorisées / installer une appli", Ui.BLUE) {
+            startActivity(Intent(this, AppsActivity::class.java))
+        }, full())
 
         // --- Réglages
-        root.addView(Ui.text(this, "Réglages", 20f, Ui.TEXT, true))
+        section(root, "⚙️ Réglages")
         root.addView(Ui.button(this, "🔑 Changer le code admin", Ui.BLUE) {
             Ui.createPin(this, cancellable = true) { toast("Code modifié") }
         }, full())
@@ -69,7 +132,6 @@ class AdminActivity : Activity() {
         }, full())
         root.addView(Ui.button(this, "⚙️ Ouvrir les Réglages (Wi-Fi, son…) 10 min", Ui.GREY) {
             Store.lockSuspendedUntil = System.currentTimeMillis() + 10 * 60_000L
-            try { stopLockTask() } catch (_: Exception) {}
             startActivity(Intent(Settings.ACTION_SETTINGS))
         }, full())
         root.addView(Ui.button(this, "🛡️ Réappliquer la protection", Ui.GREY) {
@@ -81,10 +143,9 @@ class AdminActivity : Activity() {
         root.addView(Ui.button(this, "Remettre à zéro le compteur de blocages", Ui.GREY) {
             Store.resetBlocked(this); refresh()
         }, full())
-        root.addView(Ui.space(this, 20))
 
-        root.addView(Ui.text(this, "Zone sensible", 20f, Ui.RED, true))
-        root.addView(Ui.button(this, "⛔ Désactiver définitivement le bridage", Ui.RED) { confirmRelease() }, full())
+        section(root, "⛔ Zone sensible")
+        root.addView(Ui.button(this, "Désactiver définitivement le bridage", Ui.RED) { confirmRelease() }, full())
         root.addView(Ui.space(this, 12))
         root.addView(Ui.button(this, "Fermer", Ui.GREEN) { finish() }, full())
 
@@ -93,7 +154,19 @@ class AdminActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Parent présent : on sort du kiosque (sélecteurs de fichiers, Réglages…). L'accueil le remet en place.
+        try { stopLockTask() } catch (_: Exception) {}
         refresh()
+    }
+
+    override fun onDestroy() {
+        ScreenOff.release(this)
+        super.onDestroy()
+    }
+
+    private fun section(root: LinearLayout, title: String) {
+        root.addView(Ui.space(this, 20))
+        root.addView(Ui.text(this, title, 20f, Ui.TEXT, true))
     }
 
     private fun full() = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
@@ -102,11 +175,28 @@ class AdminActivity : Activity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
+    private fun pickEmoji(onPick: (String) -> Unit) {
+        var dlg: AlertDialog? = null
+        val grid = Ui.vertical(this, 8)
+        emojis.chunked(6).forEach { chunk ->
+            val row = Ui.horizontal(this)
+            chunk.forEach { e ->
+                row.addView(Button(this).apply {
+                    text = e; textSize = 24f
+                    setOnClickListener { onPick(e); dlg?.dismiss() }
+                }, LinearLayout.LayoutParams(0, Ui.dp(this, 56), 1f))
+            }
+            grid.addView(row)
+        }
+        dlg = AlertDialog.Builder(this).setTitle("Choisir un avatar").setView(grid).show()
+    }
+
     private fun refresh() {
         val owner = Policy.isOwner(this)
         info.text = "Version ${Updater.currentVersion(this)} · " +
             (if (owner) "Bridage ACTIF" else "Bridage INACTIF (pas propriétaire)") +
             " · Appels/SMS bloqués : ${Store.blockedCount(this)}"
+        codeView.text = if (Store.trackingEnabled(this)) "Code de suivi\n${Store.trackingCode(this)}" else "Suivi désactivé"
 
         contactsBox.removeAllViews()
         val list = Store.contacts(this)
@@ -116,8 +206,12 @@ class AdminActivity : Activity() {
                 background = Ui.rounded(Color.WHITE, Ui.dp(context, 10).toFloat())
                 setPadding(Ui.dp(context, 12), Ui.dp(context, 6), Ui.dp(context, 6), Ui.dp(context, 6))
             }
-            row.addView(Ui.text(this, "${c.name}\n${c.number}", 16f), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            row.addView(Ui.button(this, "Supprimer", Ui.RED, 14f) {
+            row.addView(Ui.text(this, "${c.emoji} ${c.name}\n${c.number}", 16f), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            row.addView(Ui.button(this, if (c.sos) "🆘 SOS" else "SOS", if (c.sos) Ui.RED else Ui.GREY, 13f) {
+                Store.saveContacts(this, Store.contacts(this).map { if (it == c) it.copy(sos = !it.sos) else it })
+                refresh()
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = Ui.dp(this@AdminActivity, 4) })
+            row.addView(Ui.button(this, "✕", Ui.RED, 14f) {
                 AlertDialog.Builder(this)
                     .setMessage("Retirer ${c.name} de la liste ?")
                     .setPositiveButton("Retirer") { _, _ ->
@@ -141,7 +235,8 @@ class AdminActivity : Activity() {
                     "Pour remettre le bridage ensuite, il faudra réinitialiser le téléphone et rescanner le QR code."
             )
             .setPositiveButton("Désactiver") { _, _ ->
-                try { stopLockTask() } catch (_: Exception) {}
+                Store.setTrackingEnabled(this, false)
+                TrackingService.sync(this)
                 Policy.release(this)
                 toast("Bridage désactivé. Choisissez votre écran d'accueil habituel.")
                 startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

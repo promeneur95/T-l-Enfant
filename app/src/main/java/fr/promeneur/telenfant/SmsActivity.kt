@@ -46,6 +46,7 @@ class SmsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ScreenOff.closeOnScreenOff(this)
         val n = intent.getStringExtra(EXTRA_NUMBER)
             ?: intent.data?.schemeSpecificPart?.substringBefore('?')
         val contact = Store.find(this, n)
@@ -108,6 +109,11 @@ class SmsActivity : Activity() {
         val f = IntentFilter(SmsStore.ACTION_CHANGED)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(changed, f, Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(changed, f)
+    }
+
+    override fun onDestroy() {
+        ScreenOff.release(this)
+        super.onDestroy()
     }
 
     override fun onPause() {

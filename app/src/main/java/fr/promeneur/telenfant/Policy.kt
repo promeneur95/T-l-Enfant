@@ -38,6 +38,10 @@ object Policy {
         Manifest.permission.READ_SMS,
         Manifest.permission.RECEIVE_MMS,
         Manifest.permission.RECEIVE_WAP_PUSH,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+        "android.permission.POST_NOTIFICATIONS",
     )
 
     fun dpm(c: Context) = c.getSystemService(DevicePolicyManager::class.java)!!
@@ -62,7 +66,7 @@ object Policy {
         }
 
         // Kiosque : seule notre appli peut tourner
-        safe("locktask") { d.setLockTaskPackages(a, (listOf(pkg) + mediaPackages(c)).distinct().toTypedArray()) }
+        safe("locktask") { d.setLockTaskPackages(a, (listOf(pkg) + mediaPackages(c) + Store.allowedApps(c)).distinct().toTypedArray()) }
         safe("locktask features") {
             d.setLockTaskFeatures(
                 a,
@@ -78,8 +82,14 @@ object Policy {
                 addCategory(Intent.CATEGORY_HOME)
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
-            d.addPersistentPreferredActivity(a, f, ComponentName(c, HomeActivity::class.java))
+            d.clearPackagePersistentPreferredActivities(a, pkg)
+            d.addPersistentPreferredActivity(a, f, ComponentName(c.packageName, c.packageName + ".HomeAlias"))
         }
+
+        // Localisation toujours active (SOS, suivi)
+        if (Build.VERSION.SDK_INT >= 30) safe("location") { d.setLocationEnabled(a, true) }
+        // Pas d'écran de verrouillage système : l'appli affiche son propre écran de veille avec SOS
+        safe("keyguard") { d.setKeyguardDisabled(a, true) }
 
         // Appli téléphone et SMS par défaut
         if (Build.VERSION.SDK_INT >= 34) safe("dialer") { d.setDefaultDialerApplication(pkg) }
@@ -111,6 +121,7 @@ object Policy {
         safe("uninstall") { d.setUninstallBlocked(a, pkg, false) }
         safe("home") { d.clearPackagePersistentPreferredActivities(a, pkg) }
         safe("locktask") { d.setLockTaskPackages(a, arrayOf()) }
+        safe("keyguard") { d.setKeyguardDisabled(a, false) }
         @Suppress("DEPRECATION")
         safe("owner") { d.clearDeviceOwnerApp(pkg) }
     }

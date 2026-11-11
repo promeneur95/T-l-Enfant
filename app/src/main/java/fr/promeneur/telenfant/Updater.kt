@@ -57,7 +57,7 @@ object Updater {
         }.start()
     }
 
-    private fun download(url: String, dest: File) {
+    fun download(url: String, dest: File) {
         var u = url
         repeat(5) {
             val conn = (URL(u).openConnection() as HttpURLConnection).apply {
@@ -79,10 +79,13 @@ object Updater {
         throw IllegalStateException("trop de redirections")
     }
 
-    private fun install(c: Context, apk: File) {
+    private fun install(c: Context, apk: File) = installApk(c, apk, c.packageName)
+
+    /** Installation silencieuse d'un APK (mode propriétaire de l'appareil). */
+    fun installApk(c: Context, apk: File, packageName: String? = null) {
         val installer = c.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(c.packageName)
+            if (packageName != null) setAppPackageName(packageName)
             if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
         }
         val id = installer.createSession(params)

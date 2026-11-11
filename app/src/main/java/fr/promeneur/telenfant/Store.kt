@@ -7,7 +7,7 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
 
-data class Contact(val name: String, val number: String)
+data class Contact(val name: String, val number: String, val emoji: String = "🙂", val sos: Boolean = false)
 
 /** Stockage local : liste blanche, code admin, réglages. */
 object Store {
@@ -25,7 +25,7 @@ object Store {
             val arr = JSONArray(raw)
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
-                Contact(o.optString("name"), o.optString("number"))
+                Contact(o.optString("name"), o.optString("number"), o.optString("emoji", "🙂"), o.optBoolean("sos", false))
             }
         } catch (e: Exception) {
             emptyList()
@@ -34,7 +34,9 @@ object Store {
 
     fun saveContacts(c: Context, list: List<Contact>) {
         val arr = JSONArray()
-        list.forEach { arr.put(JSONObject().put("name", it.name).put("number", it.number)) }
+        list.forEach {
+            arr.put(JSONObject().put("name", it.name).put("number", it.number).put("emoji", it.emoji).put("sos", it.sos))
+        }
         p(c).edit().putString("contacts", arr.toString()).apply()
     }
 
@@ -93,4 +95,37 @@ object Store {
     fun lastUpdateCheck(c: Context) = p(c).getLong("last_update_check", 0)
     fun setLastUpdateCheck(c: Context) =
         p(c).edit().putLong("last_update_check", System.currentTimeMillis()).apply()
+
+    // ---------- Personnalisation ----------
+    fun childName(c: Context) = p(c).getString("child_name", "") ?: ""
+    fun setChildName(c: Context, v: String) = p(c).edit().putString("child_name", v).apply()
+
+    fun themeIndex(c: Context) = p(c).getInt("theme", 0)
+    fun customColor(c: Context) = p(c).getInt("custom_color", 0)
+    fun setTheme(c: Context, index: Int) = p(c).edit().putInt("theme", index).putInt("custom_color", 0).apply()
+    fun setCustomColor(c: Context, color: Int) = p(c).edit().putInt("custom_color", color).apply()
+
+    /** "child", "parent" ou "" (pas encore choisi). */
+    fun mode(c: Context) = p(c).getString("mode", "") ?: ""
+    fun setMode(c: Context, v: String) = p(c).edit().putString("mode", v).apply()
+
+    // ---------- Suivi de position ----------
+    fun trackingEnabled(c: Context) = p(c).getBoolean("tracking", false)
+    fun setTrackingEnabled(c: Context, v: Boolean) = p(c).edit().putBoolean("tracking", v).apply()
+    fun trackingCode(c: Context): String {
+        val existing = p(c).getString("tracking_code", null)
+        if (existing != null) return existing
+        val code = Tracker.newCode()
+        p(c).edit().putString("tracking_code", code).apply()
+        return code
+    }
+    fun renewTrackingCode(c: Context) = p(c).edit().putString("tracking_code", Tracker.newCode()).apply()
+
+    /** Côté téléphone parent : code du téléphone suivi. */
+    fun parentCode(c: Context) = p(c).getString("parent_code", "") ?: ""
+    fun setParentCode(c: Context, v: String) = p(c).edit().putString("parent_code", v).apply()
+
+    // ---------- Applications autorisées ----------
+    fun allowedApps(c: Context): Set<String> = p(c).getStringSet("apps", emptySet())?.toSet() ?: emptySet()
+    fun setAllowedApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("apps", v).apply()
 }
