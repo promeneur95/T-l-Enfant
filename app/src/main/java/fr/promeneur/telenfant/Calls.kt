@@ -43,6 +43,13 @@ object CallManager {
     /** Numéro du répondeur : réglé par le parent, sinon celui de la carte SIM. */
     @android.annotation.SuppressLint("MissingPermission")
     fun voicemail(c: Context): String? {
+        if (Store.voicemailDisabled(c)) return null
+        return voicemailNumber(c)
+    }
+
+    /** Numéro du répondeur, même s'il est désactivé (pour le réactiver). */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun voicemailNumber(c: Context): String? {
         Store.voicemailOverride(c).takeIf { it.isNotBlank() }?.let { return it }
         return try {
             c.getSystemService(android.telephony.TelephonyManager::class.java)?.voiceMailNumber?.takeIf { it.isNotBlank() }
@@ -50,9 +57,19 @@ object CallManager {
     }
 
     fun isVoicemail(c: Context, number: String?): Boolean {
-        val vm = voicemail(c) ?: return false
+        val vm = voicemailNumber(c) ?: return false
         val a = (number ?: "").filter { it.isDigit() }
         return a.isNotEmpty() && a == vm.filter { it.isDigit() }
+    }
+
+    /** Code opérateur (renvois d'appel), réservé au menu parent. */
+    fun sendOperatorCode(c: Context, code: String) {
+        val uri = Uri.fromParts("tel", code, null)
+        if (c.checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+            c.getSystemService(TelecomManager::class.java).placeCall(uri, Bundle())
+        } else {
+            c.startActivity(Intent(Intent.ACTION_CALL, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     fun dial(c: Context, number: String) {

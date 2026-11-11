@@ -140,4 +140,8 @@ object Store {
     // ---------- Messagerie vocale ----------
     fun voicemailOverride(c: Context) = p(c).getString("voicemail", "") ?: ""
     fun setVoicemailOverride(c: Context, v: String) = p(c).edit().putString("voicemail", v).apply()
+
+    /** Répondeur coupé chez l'opérateur : le bouton Répondeur disparaît de l'accueil. */
+    fun voicemailDisabled(c: Context) = p(c).getBoolean("voicemail_off", false)
+    fun setVoicemailDisabled(c: Context, v: Boolean) = p(c).edit().putBoolean("voicemail_off", v).apply()
 }

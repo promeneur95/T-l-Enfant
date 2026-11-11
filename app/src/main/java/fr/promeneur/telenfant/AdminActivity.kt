@@ -26,6 +26,7 @@ class AdminActivity : Activity() {
     private lateinit var contactsBox: LinearLayout
     private lateinit var info: TextView
     private lateinit var codeView: TextView
+    private lateinit var voicemailBtn: Button
     private var newEmoji = "🙂"
 
     private val emojis = listOf(
@@ -164,6 +165,11 @@ class AdminActivity : Activity() {
             Store.setVoicemailOverride(this, vmF.text.toString().trim())
             toast(if (CallManager.voicemail(this) != null) "Bouton Répondeur affiché sur l'accueil" else "Aucun numéro de répondeur")
         }, full())
+        root.addView(Ui.text(this, "Répondeur chez l'opérateur : les appels rejetés des numéros inconnus y arrivent. Le couper évite qu'un inconnu laisse un message.", 13f, Ui.GREY).apply {
+            setPadding(0, Ui.dp(context, 8), 0, 0)
+        })
+        voicemailBtn = Ui.button(this, "", Ui.RED) { toggleVoicemail() }
+        root.addView(voicemailBtn, full())
         root.addView(Ui.text(this, "La galerie reste bloquée : les photos se consultent et s'envoient depuis les messages.", 13f, Ui.GREY))
 
         // --- Réglages
@@ -255,6 +261,44 @@ class AdminActivity : Activity() {
         startActivity(launch)
     }
 
+    /** Coupe ou rétablit le répondeur via les codes standards de renvoi d'appel (GSM). */
+    private fun toggleVoicemail() {
+        val off = Store.voicemailDisabled(this)
+        if (!off) {
+            AlertDialog.Builder(this)
+                .setTitle("Couper le répondeur ?")
+                .setMessage("Le téléphone envoie le code ##002# à l'opérateur : tous les renvois d'appel sont annulés, donc plus de répondeur. " +
+                    "Les appels rejetés sonneront simplement « occupé ». Une confirmation de l'opérateur s'affiche ensuite.")
+                .setPositiveButton("Couper") { _, _ ->
+                    CallManager.sendOperatorCode(this, "##002#")
+                    Store.setVoicemailDisabled(this, true)
+                    refresh()
+                }
+                .setNegativeButton("Annuler", null)
+                .show()
+        } else {
+            val vm = CallManager.voicemailNumber(this)
+            val field = EditText(this).apply {
+                hint = "Numéro de renvoi du répondeur"
+                inputType = InputType.TYPE_CLASS_PHONE
+                setText(vm ?: "")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Rétablir le répondeur ?")
+                .setMessage("Les appels non répondus, occupés ou injoignables seront renvoyés vers ce numéro (code **004*numéro#). " +
+                    "Si l'opérateur demande un numéro long (ex : +33 6 95 00 08 88 chez Orange), consultez son site.")
+                .setView(field)
+                .setPositiveButton("Rétablir") { _, _ ->
+                    val n = field.text.toString().filter { it.isDigit() || it == '+' }
+                    if (n.isNotEmpty()) CallManager.sendOperatorCode(this, "**004*$n#")
+                    Store.setVoicemailDisabled(this, false)
+                    refresh()
+                }
+                .setNegativeButton("Annuler", null)
+                .show()
+        }
+    }
+
     private fun pickEmoji(onPick: (String) -> Unit) {
         var dlg: AlertDialog? = null
         val grid = Ui.vertical(this, 8)
@@ -276,6 +320,9 @@ class AdminActivity : Activity() {
         info.text = "Version ${Updater.currentVersion(this)} · " +
             (if (owner) "Bridage ACTIF" else "Bridage INACTIF (pas propriétaire)") +
             " · Appels/SMS bloqués : ${Store.blockedCount(this)}"
+        val vmOff = Store.voicemailDisabled(this)
+        voicemailBtn.text = if (vmOff) "📼 Répondeur coupé · Rétablir" else "📵 Couper le répondeur (opérateur)"
+        voicemailBtn.background = Ui.rounded(if (vmOff) Ui.GREEN else Ui.RED, Ui.dp(this, 14).toFloat())
         codeView.text = if (Store.trackingEnabled(this)) "Code de suivi\n${Store.trackingCode(this)}" else "Suivi désactivé"
 
         contactsBox.removeAllViews()
