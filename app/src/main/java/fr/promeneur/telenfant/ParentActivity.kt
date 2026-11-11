@@ -79,11 +79,14 @@ class ParentActivity : Activity() {
         setContentView(root)
 
         if (Store.parentCode(this).isBlank()) askCode(cancellable = false)
-        ParentJob.schedule(this)
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1)
-        }
+        try { ParentJob.schedule(this) } catch (_: Exception) {}
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1)
+            }
+        } catch (_: Exception) {}
+        CrashReport.showIfAny(this)
         info.setOnClickListener { zonesDialog() }
     }
 
@@ -222,7 +225,7 @@ class ParentActivity : Activity() {
                 .put("label", fmt.format(Date(it.optLong("t")))))
         }
         if (mapReady) web.evaluateJavascript("show(${arr}, ${ParentStore.zonesJson(this)});", null)
-        ParentJob.check(this, points)
+        try { ParentJob.check(this, points) } catch (_: Exception) {}
 
         val sos = points.filter { it.optBoolean("sos") }.maxByOrNull { it.optLong("t") }
         if (sos != null && sos.optLong("t") > lastSosAlert && System.currentTimeMillis() - sos.optLong("t") < 3 * 3600_000L) {

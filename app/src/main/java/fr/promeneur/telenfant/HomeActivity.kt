@@ -93,6 +93,7 @@ class HomeActivity : Activity() {
         registered = true
 
         if (!Store.hasPin(this)) Ui.createPin(this, cancellable = false) { buildContent() }
+        else CrashReport.showIfAny(this)
     }
 
     override fun onDestroy() {

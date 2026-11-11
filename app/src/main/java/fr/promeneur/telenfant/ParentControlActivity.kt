@@ -83,7 +83,7 @@ class ParentControlActivity : Activity() {
         Thread {
             val points = try { Tracker.poll(code(), "12h") } catch (e: Exception) { null }
             runOnUiThread {
-                if (points != null) ParentJob.check(this, points)
+                if (points != null) try { ParentJob.check(this, points) } catch (_: Exception) {}
                 // On ne reconstruit l'écran que si un nouvel état est arrivé (évite d'effacer une saisie)
                 val t = ParentStore.lastStatus(this)?.optLong("t") ?: 0L
                 if (t != renderedT) render()
