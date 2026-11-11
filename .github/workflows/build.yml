@@ -29,7 +29,16 @@ jobs:
           gradle-version: 8.14.3
 
       - name: Clé de signature
-        run: echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > app/release.jks
+        env:
+          KS: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          printf '%s' "$KS" | tr -d ' \r\n' | base64 -d > app/release.jks
+          echo "Taille du secret : ${#KS} caractères (attendu 3540)"
+          echo "Taille de la clé : $(stat -c %s app/release.jks) octets (attendu 2654)"
+          echo "Empreinte : $(sha256sum app/release.jks | cut -c1-16)"
+          echo "Mot de passe : ${#KEYSTORE_PASSWORD} caractères (attendu 24)"
+          keytool -list -keystore app/release.jks -storepass "$KEYSTORE_PASSWORD" | tail -2
 
       - name: Compilation
         env:
