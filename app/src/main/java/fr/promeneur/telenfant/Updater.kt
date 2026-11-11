@@ -7,7 +7,6 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -15,10 +14,29 @@ import java.net.URL
 /** Mise à jour depuis la dernière « Release » GitHub (installation silencieuse en mode propriétaire). */
 object Updater {
     const val REPO = "promeneur95/T-l-Enfant"
-    private const val API = "https://api.github.com/repos/$REPO/releases/latest"
+    /** Page web (pas l'API GitHub, limitée à 60 requêtes/heure par adresse IP, partagée en 4G). */
+    private const val LATEST = "https://github.com/$REPO/releases/latest"
+    private const val APK = "$LATEST/download/TelEnfant.apk"
 
     fun currentVersion(c: Context): Long =
         c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode
+
+    /** Numéro de la dernière version publiée, lu dans la redirection « releases/latest → releases/tag/vN ». */
+    private fun latestVersion(): Long {
+        val conn = (URL(LATEST).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            requestMethod = "HEAD"
+            setRequestProperty("User-Agent", "TelEnfant")
+            connectTimeout = 20000
+            readTimeout = 20000
+        }
+        val code = conn.responseCode
+        val location = conn.getHeaderField("Location") ?: ""
+        conn.disconnect()
+        if (code !in 300..399) throw IllegalStateException("réponse GitHub $code")
+        return location.substringAfterLast("/").filter { it.isDigit() }.toLongOrNull()
+            ?: throw IllegalStateException("version introuvable")
+    }
 
     fun check(c: Context, silent: Boolean, report: (String) -> Unit) {
         val app = c.applicationContext
@@ -26,33 +44,21 @@ object Updater {
         fun say(s: String) = main.post { report(s) }
         Thread {
             try {
-                val conn = (URL(API).openConnection() as HttpURLConnection).apply {
-                    setRequestProperty("Accept", "application/vnd.github+json")
-                    setRequestProperty("User-Agent", "TelEnfant")
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                }
-                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                val remote = json.optString("tag_name").filter { it.isDigit() }.toLongOrNull() ?: 0L
+                val remote = latestVersion()
                 val current = currentVersion(app)
                 if (remote <= current) {
                     say("L'appli est à jour (version $current).")
                     return@Thread
                 }
-                val assets = json.getJSONArray("assets")
-                var url: String? = null
-                for (i in 0 until assets.length()) {
-                    val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk")) url = a.optString("browser_download_url")
-                }
-                if (url == null) { say("Version $remote trouvée mais sans APK."); return@Thread }
                 say("Téléchargement de la version $remote…")
                 val file = File(app.cacheDir, "update.apk")
-                download(url, file)
+                download(APK, file)
                 install(app, file)
                 say("Installation de la version $remote… L'appli va redémarrer.")
+            } catch (e: java.net.UnknownHostException) {
+                if (!silent) say("Pas de connexion internet (vérifiez les données mobiles).")
             } catch (e: Exception) {
-                if (!silent) say("Vérification impossible : ${e.message}")
+                if (!silent) say("Mise à jour impossible : ${e.message ?: e.javaClass.simpleName}")
             }
         }.start()
     }
