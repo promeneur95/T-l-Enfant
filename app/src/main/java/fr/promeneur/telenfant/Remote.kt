@@ -75,6 +75,14 @@ object Remote {
                     changed = true
                 }
                 "camera" -> { Store.setCameraEnabled(c, cmd.optBoolean("on")); changed = true }
+                "ringtone" -> {
+                    try {
+                        val bytes = Tracker.downloadFile(code, cmd.optString("url"))
+                        val choice = Ringtones.addCustom(c, cmd.optString("name").ifBlank { "Sonnerie des parents" }, bytes)
+                        if (cmd.optBoolean("set")) Ringtones.set(c, choice)
+                        changed = true
+                    } catch (_: Exception) {}
+                }
                 else -> {}
             }
         }
@@ -116,6 +124,7 @@ object Remote {
             .put("ver", Updater.currentVersion(c))
             .put("mode", Rules.mode(c).name)
             .put("cam", Store.cameraEnabled(c))
+            .put("rt", Ringtones.currentTitle(c))
             .put("contacts", contacts)
             .put("apps", apps)
             .put("journal", journal)

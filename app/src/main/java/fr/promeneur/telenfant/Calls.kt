@@ -96,7 +96,17 @@ object CallManager {
 class CallService : InCallService() {
 
     private val cb = object : Call.Callback() {
-        override fun onStateChanged(call: Call, state: Int) = CallManager.notifyChanged()
+        override fun onStateChanged(call: Call, state: Int) {
+            updateRinging()
+            CallManager.notifyChanged()
+        }
+    }
+
+    /** L'appli joue elle-même la sonnerie (choisie par l'enfant ou envoyée par les parents). */
+    private fun updateRinging() {
+        val ringing = CallManager.calls.any { stateOf(it) == Call.STATE_RINGING }
+        val busy = CallManager.calls.any { stateOf(it) == Call.STATE_ACTIVE || stateOf(it) == Call.STATE_HOLDING }
+        if (ringing && !busy) CallRinger.start(this) else CallRinger.stop(this)
     }
 
     override fun onCreate() {
@@ -105,6 +115,7 @@ class CallService : InCallService() {
     }
 
     override fun onDestroy() {
+        CallRinger.stop(this)
         if (CallManager.service === this) CallManager.service = null
         super.onDestroy()
     }
@@ -120,6 +131,7 @@ class CallService : InCallService() {
         }
         call.registerCallback(cb)
         CallManager.calls += call
+        updateRinging()
         CallManager.notifyChanged()
         startActivity(
             Intent(this, CallActivity::class.java)
@@ -131,7 +143,13 @@ class CallService : InCallService() {
         super.onCallRemoved(call)
         call.unregisterCallback(cb)
         CallManager.calls -= call
+        updateRinging()
         CallManager.notifyChanged()
+    }
+
+    /** Touche volume pendant la sonnerie : couper le son. */
+    override fun onSilenceRinger() {
+        CallRinger.stop(this)
     }
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) {

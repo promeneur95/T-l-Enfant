@@ -157,6 +157,11 @@ class ParentControlActivity : Activity() {
             send(JSONObject().put("cmd", "contact_add").put("name", n).put("number", num).put("sos", sosSw.isChecked))
         }, full())
 
+        // Sonnerie
+        section("🎵 Sonnerie")
+        body.addView(Ui.text(this, "Sonnerie actuelle : ${st.optString("rt").ifBlank { "celle du téléphone" }}", 14f, Ui.GREY))
+        body.addView(Ui.button(this, "🎁 Envoyer un fichier audio (MP3, M4A, OGG…)", Ui.BLUE, 15f) { pickAudio() }, full())
+
         // Applications
         section("🎮 Applications")
         @Suppress("DEPRECATION")
@@ -209,6 +214,51 @@ class ParentControlActivity : Activity() {
         val zones = ParentStore.zones(this)
         body.addView(Ui.text(this, if (zones.isEmpty()) "Aucune zone : faites un appui long sur la carte pour en créer (maison, école…)."
             else zones.joinToString("\n") { "• ${it.name} (${it.radius} m)" } + "\nGestion : touchez le bandeau bleu de la carte.", 14f, Ui.GREY))
+    }
+
+    private fun pickAudio() {
+        val i = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("audio/*")
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(i, 7)
+        } catch (_: Exception) { toast("Sélecteur de fichiers indisponible") }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data ?: return
+        if (requestCode != 7 || resultCode != RESULT_OK) return
+        var name = "Sonnerie des parents"
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) name = it.getString(0) ?: name
+            }
+        } catch (_: Exception) {}
+        val bytes = try { contentResolver.openInputStream(uri)?.use { it.readBytes() } } catch (_: Exception) { null }
+        if (bytes == null) { toast("Fichier illisible"); return }
+        if (bytes.size > 5 * 1024 * 1024) { toast("Fichier trop gros (5 Mo maximum)"); return }
+        @Suppress("DEPRECATION")
+        val setNow = Switch(this).apply { text = "L'utiliser tout de suite comme sonnerie"; isChecked = true }
+        val box = Ui.vertical(this, 16).apply { addView(setNow) }
+        AlertDialog.Builder(this)
+            .setTitle("Envoyer « $name » ?")
+            .setMessage("L'enfant pourra aussi le choisir dans 🎵 Sonnerie.")
+            .setView(box)
+            .setPositiveButton("Envoyer") { _, _ ->
+                toast("Envoi du fichier…")
+                Thread {
+                    val url = Tracker.uploadFile(code(), bytes)
+                    runOnUiThread {
+                        if (url == null) toast("❌ Envoi du fichier impossible")
+                        else send(JSONObject().put("cmd", "ringtone").put("url", url).put("name", name).put("set", setNow.isChecked))
+                    }
+                }.start()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
     }
 
     private fun askLimit(a: JSONObject) {

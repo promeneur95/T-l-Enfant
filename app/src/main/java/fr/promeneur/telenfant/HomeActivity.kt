@@ -235,30 +235,34 @@ class HomeActivity : Activity() {
         header.addView(chips)
         content.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
-        // Raccourcis : lampe et sonnerie
-        val quick = Ui.horizontal(this).apply { setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 12), Ui.dp(context, 4)) }
+        // Raccourcis : lampe, répondeur, sonnerie / vibreur, choix de la sonnerie (tuiles compactes)
+        val quick = Ui.horizontal(this).apply { setPadding(Ui.dp(context, 8), 0, Ui.dp(context, 8), Ui.dp(context, 4)) }
+        fun tile(label: String, color: Int, onClick: () -> Unit) = Ui.button(this, label, color, 13f, onClick).apply {
+            setPadding(Ui.dp(context, 2), Ui.dp(context, 4), Ui.dp(context, 2), Ui.dp(context, 4))
+            maxLines = 2
+        }
+        fun addTile(b: android.widget.Button) = quick.addView(b, LinearLayout.LayoutParams(0, Ui.dp(this, 64), 1f).apply {
+            val m = Ui.dp(this@HomeActivity, 3); setMargins(m, 0, m, 0)
+        })
         Torch.watch(this) { runOnUiThread { buildContent() } }
         if (Torch.available(this)) {
-            val torch = Ui.button(this, if (Torch.isOn) "🔦 Allumée" else "🔦 Lampe",
-                if (Torch.isOn) 0xFFFFC107.toInt() else 0x33000000, 16f) {
+            val torch = tile(if (Torch.isOn) "🔦\nAllumée" else "🔦\nLampe", if (Torch.isOn) 0xFFFFC107.toInt() else 0x33000000) {
                 if (!Torch.toggle(this)) toast("Lampe indisponible")
                 buildContent()
             }
             if (Torch.isOn) torch.setTextColor(Ui.TEXT)
-            quick.addView(torch, LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply { marginEnd = Ui.dp(this@HomeActivity, 6) })
+            addTile(torch)
         }
         CallManager.voicemail(this)?.let { vm ->
-            quick.addView(Ui.button(this, "📼 Répondeur", 0x33000000, 16f) { CallManager.dial(this, vm) },
-                LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply {
-                    marginStart = Ui.dp(this@HomeActivity, 6); marginEnd = Ui.dp(this@HomeActivity, 6)
-                })
+            addTile(tile("📼\nRépondeur", 0x33000000) { CallManager.dial(this, vm) })
         }
         val vib = Sound.isVibrate(this)
-        quick.addView(Ui.button(this, if (vib) "📳 Vibreur" else "🔔 Sonnerie", if (vib) 0xFF6A1B9A.toInt() else 0x33000000, 16f) {
+        addTile(tile(if (vib) "📳\nVibreur" else "🔔\nSon", if (vib) 0xFF6A1B9A.toInt() else 0x33000000) {
             if (!Sound.setVibrate(this, !Sound.isVibrate(this))) toast("Impossible de changer le mode")
             else toast(if (Sound.isVibrate(this)) "Mode vibreur 📳" else "Sonnerie activée 🔔")
             buildContent()
-        }, LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1f).apply { marginStart = Ui.dp(this@HomeActivity, 6) })
+        })
+        addTile(tile("🎵\nSonnerie", 0x33000000) { RingtonePicker.show(this) })
         content.addView(quick, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         // Contacts + applis

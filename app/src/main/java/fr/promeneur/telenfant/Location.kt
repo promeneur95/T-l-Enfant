@@ -166,6 +166,42 @@ object Tracker {
         String(cipher.doFinal(all.copyOfRange(12, all.size)))
     } catch (_: Exception) { null }
 
+    fun encryptBytes(code: String, data: ByteArray): ByteArray {
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key(code), GCMParameterSpec(128, iv))
+        return iv + cipher.doFinal(data)
+    }
+
+    fun decryptBytes(code: String, all: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(code), GCMParameterSpec(128, all.copyOfRange(0, 12)))
+        return cipher.doFinal(all.copyOfRange(12, all.size))
+    }
+
+    /** Dépose un fichier chiffré (pièce jointe ntfy, conservée quelques heures) et renvoie son lien. */
+    fun uploadFile(code: String, data: ByteArray): String? = try {
+        val conn = (URL("$SERVER/${topic(code)}f").openConnection() as HttpURLConnection).apply {
+            requestMethod = "PUT"
+            doOutput = true
+            connectTimeout = 20000
+            readTimeout = 120000
+            setRequestProperty("Filename", "f.bin")
+            setFixedLengthStreamingMode(data.size + 28)
+        }
+        conn.outputStream.use { it.write(encryptBytes(code, data)) }
+        val resp = conn.inputStream.bufferedReader().use { it.readText() }
+        JSONObject(resp).optJSONObject("attachment")?.optString("url")?.takeIf { it.isNotEmpty() }
+    } catch (_: Exception) { null }
+
+    fun downloadFile(code: String, url: String): ByteArray {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20000
+            readTimeout = 120000
+        }
+        return decryptBytes(code, conn.inputStream.use { it.readBytes() })
+    }
+
     /** Envoie un message chiffré sur un canal (à appeler hors du fil principal). */
     fun post(code: String, topic: String, json: JSONObject): Boolean = try {
         val conn = (URL("$SERVER/$topic").openConnection() as HttpURLConnection).apply {
